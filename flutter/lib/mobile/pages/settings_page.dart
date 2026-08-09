@@ -1096,14 +1096,16 @@ void showAbout(OverlayDialogManager dialogManager) {
       title: Text(translate('About RustDesk')),
       content: Wrap(direction: Axis.vertical, spacing: 12, children: [
         Text('Version: $version'),
+        Text('УДУ — Удалённое управление'),
+        Text('Основано на открытом проекте RustDesk (AGPL-3.0).'),
         InkWell(
             onTap: () async {
-              const url = 'https://rustdesk.com/';
+              const url = 'https://github.com/pavel9619229-cmyk/rustdesk';
               await launchUrl(Uri.parse(url));
             },
             child: Padding(
               padding: EdgeInsets.symmetric(vertical: 8),
-              child: Text('rustdesk.com',
+              child: Text('Исходный код УДУ',
                   style: TextStyle(
                     decoration: TextDecoration.underline,
                   )),
