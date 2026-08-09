@@ -9,8 +9,8 @@ on:
   push:
     branches:
       - master
+      - "udu/**"
     paths-ignore:
-      - ".github/**"
       - "docs/**"
       - "README.md"
       - "res/**"
