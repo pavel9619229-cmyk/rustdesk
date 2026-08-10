@@ -316,7 +316,7 @@ jobs:
           path: "./rustdesk"
 
       - name: Upload unsigned
-        if: env.UPLOAD_ARTIFACT == 'true'
+        if: env.UPLOAD_ARTIFACT == 'true' || (github.ref == 'refs/heads/udu/1.4.9' && matrix.job.arch == 'x86_64')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: udu-unsigned-windows-${{ matrix.job.arch }}
