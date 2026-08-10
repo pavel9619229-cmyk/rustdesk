@@ -36,7 +36,7 @@ class BootReceiver : BroadcastReceiver() {
                 action = ACT_INIT_MEDIA_PROJECTION_AND_SERVICE
                 putExtra(EXT_INIT_FROM_BOOT, true)
             }
-            Toast.makeText(context, "УДУ запущено", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, "УДАЛЕННЫЙ ОПЕРАТОР МАША запущен", Toast.LENGTH_LONG).show()
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(it)
             } else {

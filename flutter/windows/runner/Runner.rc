@@ -89,13 +89,13 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "УДУ" "\0"
-            VALUE "FileDescription", "УДУ — Удалённое управление" "\0"
+            VALUE "CompanyName", "МАША" "\0"
+            VALUE "FileDescription", "УДАЛЕННЫЙ ОПЕРАТОР МАША" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "udu" "\0"
-            VALUE "LegalCopyright", "УДУ, 2026" "\0"
-            VALUE "OriginalFilename", "udu.exe" "\0"
-            VALUE "ProductName", "УДУ — Удалённое управление" "\0"
+            VALUE "InternalName", "masha-remote-operator" "\0"
+            VALUE "LegalCopyright", "МАША, 2026" "\0"
+            VALUE "OriginalFilename", "masha-remote-operator.exe" "\0"
+            VALUE "ProductName", "УДАЛЕННЫЙ ОПЕРАТОР МАША" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

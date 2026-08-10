@@ -267,7 +267,7 @@ class _DesktopSettingPageState extends State<DesktopSettingPage>
         ),
         if (videoConnBlock)
           Container(
-            color: Colors.black.withOpacity(0.5),
+            color: Colors.black.withValues(alpha: 0.5),
           )
       ]);
     });
@@ -277,7 +277,7 @@ class _DesktopSettingPageState extends State<DesktopSettingPage>
   Widget build(BuildContext context) {
     super.build(context);
     return Scaffold(
-      backgroundColor: Theme.of(context).colorScheme.background,
+      backgroundColor: Theme.of(context).colorScheme.surface,
       body: _buildBlock(
         children: <Widget>[
           SizedBox(
@@ -1661,7 +1661,7 @@ class _NetworkState extends State<_Network> with AutomaticKeepAliveClientMixin {
                             .textTheme
                             .titleLarge
                             ?.color
-                            ?.withOpacity(0.7),
+                            ?.withValues(alpha: 0.7),
                       ),
                     ],
                   ),
@@ -2429,7 +2429,7 @@ class _AboutState extends State<_About> {
       final scrollController = ScrollController();
       return SingleChildScrollView(
         controller: scrollController,
-        child: _Card(title: translate('About RustDesk'), children: [
+        child: _Card(title: 'О программе', children: [
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -2452,7 +2452,7 @@ class _AboutState extends State<_About> {
                         'https://github.com/pavel9619229-cmyk/rustdesk');
                   },
                   child: Text(
-                    'Исходный код УДУ (AGPL-3.0)',
+                    'Исходный код УДАЛЕННОГО ОПЕРАТОРА МАША (AGPL-3.0)',
                     style: linkStyle,
                   ).marginSymmetric(vertical: 4.0)),
               Container(
@@ -2467,12 +2467,12 @@ class _AboutState extends State<_About> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'УДУ — Удалённое управление\n'
+                            'УДАЛЕННЫЙ ОПЕРАТОР МАША\n'
                             'Основано на открытом проекте RustDesk.\n$license',
                             style: const TextStyle(color: Colors.white),
                           ),
                           Text(
-                            'Удалённая помощь без обязательной подписки',
+                            'Персональная удалённая помощь без обязательной подписки',
                             style: TextStyle(
                                 fontWeight: FontWeight.w800,
                                 color: Colors.white),
@@ -2744,8 +2744,8 @@ class _WaylandCardState extends State<WaylandCard> {
       showConfirmMsgBox,
       tip: 'clear_Wayland_screen_selection_tip',
       style: ButtonStyle(
-        backgroundColor: MaterialStateProperty.all<Color>(
-            Theme.of(context).colorScheme.error.withOpacity(0.75)),
+        backgroundColor: WidgetStateProperty.all<Color>(
+            Theme.of(context).colorScheme.error.withValues(alpha: 0.75)),
       ),
     );
   }
@@ -2787,8 +2787,8 @@ class _WaylandCardState extends State<WaylandCard> {
         showConfirmMsgBox,
         tip: 'clear-shortcuts-inhibitor-permission-tip',
         style: ButtonStyle(
-          backgroundColor: MaterialStateProperty.all<Color>(
-              Theme.of(context).colorScheme.error.withOpacity(0.75)),
+          backgroundColor: WidgetStateProperty.all<Color>(
+              Theme.of(context).colorScheme.error.withValues(alpha: 0.75)),
         ),
       ),
     ]);
@@ -3090,7 +3090,7 @@ void changeSocks5Proxy() async {
                                     .textTheme
                                     .titleLarge
                                     ?.color
-                                    ?.withOpacity(0.5),
+                                    ?.withValues(alpha: 0.5),
                               ),
                             ),
                           ],

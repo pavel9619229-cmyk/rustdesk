@@ -46,7 +46,7 @@ class _InstallPageState extends State<InstallPage> {
       enableResizeEdges: windowManagerEnableResizeEdges,
       child: Container(
         child: Scaffold(
-            backgroundColor: Theme.of(context).colorScheme.background,
+            backgroundColor: Theme.of(context).colorScheme.surface,
             body: DesktopTab(controller: tabController)),
       ),
     );
@@ -187,9 +187,10 @@ class _InstallPageBodyState extends State<_InstallPageBody>
                           InkWell(
                             hoverColor: Colors.transparent,
                             onTap: () => launchUrlString(
-                                'https://rustdesk.com/privacy.html'),
+                                'https://github.com/pavel9619229-cmyk/rustdesk/blob/udu/1.4.9/LICENCE'),
                             child: Tooltip(
-                              message: 'https://rustdesk.com/privacy.html',
+                              message:
+                                  'https://github.com/pavel9619229-cmyk/rustdesk/blob/udu/1.4.9/LICENCE',
                               child: Row(children: [
                                 Icon(Icons.launch_outlined, size: 16)
                                     .marginOnly(right: 5),

@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">УДУ</string>
-    <string name="input_service_name">УДУ: управление вводом</string>
-    <string name="accessibility_service_description">Разрешает удалённое управление устройством с помощью виртуальных касаний во время сеанса УДУ</string>
+    <string name="app_name">УДАЛЕННЫЙ ОПЕРАТОР МАША</string>
+    <string name="input_service_name">УДАЛЕННЫЙ ОПЕРАТОР МАША: управление вводом</string>
+    <string name="accessibility_service_description">Разрешает удалённое управление устройством с помощью виртуальных касаний во время сеанса УДАЛЕННОГО ОПЕРАТОРА МАША</string>
 </resources>

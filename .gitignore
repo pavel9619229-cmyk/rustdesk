@@ -17,6 +17,11 @@ cert.pfx
 *png
 *svg
 *jpg
+!logoMASHAbig.jpg
+!logoMASHAcompact.jpg
+!flutter/assets/logo.png
+!flutter/assets/logo_light.png
+!flutter/assets/logo_dark.png
 sciter.dll
 **pdb
 src/bridge_generated.rs
