@@ -177,7 +177,7 @@ class ColorThemeExtension extends ThemeExtension<ColorThemeExtension> {
     shadow: Colors.black,
     errorBannerBg: Color(0xFFFDEEEB),
     me: Colors.green,
-    toastBg: Colors.black.withValues(alpha: 0.6),
+    toastBg: Colors.black.withOpacity(0.6),
     toastText: Colors.white,
     divider: Colors.black38,
   );
@@ -191,7 +191,7 @@ class ColorThemeExtension extends ThemeExtension<ColorThemeExtension> {
     shadow: Colors.grey,
     errorBannerBg: Color(0xFF470F2D),
     me: Colors.greenAccent,
-    toastBg: Colors.white.withValues(alpha: 0.6),
+    toastBg: Colors.white.withOpacity(0.6),
     toastText: Colors.black,
     divider: Colors.white38,
   );
@@ -346,11 +346,11 @@ class MyTheme {
       : EdgeInsets.only(left: dialogPadding / 3);
 
   static ScrollbarThemeData scrollbarTheme = ScrollbarThemeData(
-    thickness: WidgetStateProperty.all(6),
-    thumbColor: WidgetStateProperty.resolveWith<Color?>((states) {
-      if (states.contains(WidgetState.dragged)) {
+    thickness: MaterialStateProperty.all(6),
+    thumbColor: MaterialStateProperty.resolveWith<Color?>((states) {
+      if (states.contains(MaterialState.dragged)) {
         return Colors.grey[900];
-      } else if (states.contains(WidgetState.hovered)) {
+      } else if (states.contains(MaterialState.hovered)) {
         return Colors.grey[700];
       } else {
         return Colors.grey[500];
@@ -360,10 +360,10 @@ class MyTheme {
   );
 
   static ScrollbarThemeData scrollbarThemeDark = scrollbarTheme.copyWith(
-    thumbColor: WidgetStateProperty.resolveWith<Color?>((states) {
-      if (states.contains(WidgetState.dragged)) {
+    thumbColor: MaterialStateProperty.resolveWith<Color?>((states) {
+      if (states.contains(MaterialState.dragged)) {
         return Colors.grey[100];
-      } else if (states.contains(WidgetState.hovered)) {
+      } else if (states.contains(MaterialState.hovered)) {
         return Colors.grey[300];
       } else {
         return Colors.grey[500];
@@ -377,6 +377,7 @@ class MyTheme {
     brightness: Brightness.light,
     hoverColor: Color.fromARGB(255, 224, 224, 224),
     scaffoldBackgroundColor: Colors.white,
+    dialogBackgroundColor: Colors.white,
     appBarTheme: AppBarTheme(
       shadowColor: Colors.transparent,
     ),
@@ -451,9 +452,9 @@ class MyTheme {
     listTileTheme: listTileTheme,
     menuBarTheme: MenuBarThemeData(
         style:
-            MenuStyle(backgroundColor: WidgetStatePropertyAll(Colors.white))),
+            MenuStyle(backgroundColor: MaterialStatePropertyAll(Colors.white))),
     colorScheme: ColorScheme.light(
-        primary: Colors.blue, secondary: accent, surface: grayBg),
+        primary: Colors.blue, secondary: accent, background: grayBg),
     popupMenuTheme: PopupMenuThemeData(
         color: Colors.white,
         shape: RoundedRectangleBorder(
@@ -474,6 +475,7 @@ class MyTheme {
     brightness: Brightness.dark,
     hoverColor: Color.fromARGB(255, 45, 46, 53),
     scaffoldBackgroundColor: Color(0xFF18191E),
+    dialogBackgroundColor: Color(0xFF18191E),
     appBarTheme: AppBarTheme(
       shadowColor: Colors.transparent,
     ),
@@ -558,11 +560,11 @@ class MyTheme {
     listTileTheme: listTileTheme,
     menuBarTheme: MenuBarThemeData(
         style: MenuStyle(
-            backgroundColor: WidgetStatePropertyAll(Color(0xFF121212)))),
+            backgroundColor: MaterialStatePropertyAll(Color(0xFF121212)))),
     colorScheme: ColorScheme.dark(
       primary: Colors.blue,
       secondary: accent,
-      surface: Color(0xFF24252B),
+      background: Color(0xFF24252B),
     ),
     popupMenuTheme: PopupMenuThemeData(
         shape: RoundedRectangleBorder(
@@ -1442,9 +1444,9 @@ Color str2color2(String str, {List<int> existing = const []}) {
   List<Color> colorList = colorMap.values.toList();
   hash = hash % colorList.length;
   var result = colorList[hash].withAlpha(0xFF);
-  if (existing.contains(result.toARGB32())) {
+  if (existing.contains(result.value)) {
     Color? notUsed =
-        colorList.firstWhereOrNull((e) => !existing.contains(e.toARGB32()));
+        colorList.firstWhereOrNull((e) => !existing.contains(e.value));
     if (notUsed != null) {
       result = notUsed;
     }
@@ -1782,7 +1784,7 @@ String get windowFramePrefix =>
 
 typedef WindowKey = ({WindowType type, int? windowId});
 
-LastWindowPosition? _lastWindowPosition;
+LastWindowPosition? _lastWindowPosition = null;
 final Debouncer _saveWindowDebounce = Debouncer(delay: Duration(seconds: 1));
 
 /// Save window position and size on exit
@@ -3199,7 +3201,7 @@ Widget buildRemoteBlock(
             Offstage(
                 offstage: !block.value,
                 child: Container(
-                  color: Colors.black.withValues(alpha: 0.5),
+                  color: Colors.black.withOpacity(0.5),
                 )),
         ]),
       ));
@@ -3731,7 +3733,7 @@ class ComboBox extends StatelessWidget {
 Color? disabledTextColor(BuildContext context, bool enabled) {
   return enabled
       ? null
-      : Theme.of(context).textTheme.titleLarge?.color?.withValues(alpha: 0.6);
+      : Theme.of(context).textTheme.titleLarge?.color?.withOpacity(0.6);
 }
 
 Widget loadPowered(BuildContext context) {
@@ -3914,7 +3916,7 @@ Widget buildVirtualWindowFrame(BuildContext context, Widget child) {
       ? <BoxShadow>[
           if (stateGlobal.fullscreen.isFalse || stateGlobal.isMaximized.isFalse)
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.1),
+              color: Colors.black.withOpacity(0.1),
               offset: Offset(
                   0.0,
                   stateGlobal.isFocused.isTrue
@@ -3929,7 +3931,7 @@ Widget buildVirtualWindowFrame(BuildContext context, Widget child) {
       decoration: BoxDecoration(
         color: isMainDesktopWindow
             ? Colors.transparent
-            : Theme.of(context).colorScheme.surface,
+            : Theme.of(context).colorScheme.background,
         border: Border.all(
           color: Theme.of(context).dividerColor,
           width: stateGlobal.windowBorderWidth.value,
@@ -4060,7 +4062,7 @@ List<SubWindowResizeEdge>? get subWindowManagerEnableResizeEdges => isWindows
     : null;
 
 void earlyAssert() {
-  assert('1' == '1');
+  assert('\1' == '1');
 }
 
 void checkUpdate() {
