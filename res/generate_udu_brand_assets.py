@@ -51,6 +51,7 @@ def save_windows_assets(master: Image.Image) -> None:
     icon_sizes = [(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)]
     for destination in (
         ROOT / "res" / "icon.ico",
+        ROOT / "res" / "tray-icon.ico",
         ROOT / "flutter" / "windows" / "runner" / "resources" / "app_icon.ico",
     ):
         destination.parent.mkdir(parents=True, exist_ok=True)
