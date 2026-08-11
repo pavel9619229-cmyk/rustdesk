@@ -23,7 +23,7 @@
       background: #dedede;
       color: var(--ink);
       font-family: "Trebuchet MS", "Segoe UI", sans-serif;
-      zoom: 1.5;
+      zoom: 1.125;
     }
 
     .window {
@@ -89,7 +89,7 @@
 
     .main {
       display: grid;
-      grid-template-columns: minmax(500px, 1.15fr) minmax(340px, .85fr);
+      grid-template-columns: minmax(0, 1.15fr) minmax(0, .85fr);
       min-width: 0;
     }
 
@@ -150,18 +150,18 @@
     .device-id strong { font-size: 19px; letter-spacing: .5px; }
     .copy { border: 0; background: transparent; color: var(--ink); font-family: inherit; font-size: 13px; font-weight: 700; }
 
-    .info-area { padding: 58px 46px 44px; border-left: 1px solid var(--line); background: var(--quiet); }
+    .info-area { min-width: 0; padding: 58px 46px 44px; border-left: 1px solid var(--line); background: var(--quiet); }
     .masha-note { display: flex; align-items: center; gap: 16px; margin-bottom: 42px; }
     .masha-note img { width: 76px; height: 76px; object-fit: contain; }
     .masha-note h2 { margin: 0 0 5px; font-size: 19px; }
-    .masha-note p { margin: 0; color: #555555; font-size: 13px; line-height: 1.4; }
+    .masha-note p { margin: 0; color: #555555; font-size: 13px; line-height: 1.4; overflow-wrap: anywhere; }
     .recent-title { margin: 0 0 14px; font-size: 12px; font-weight: 700; letter-spacing: 1.1px; text-transform: uppercase; }
     .contact { display: flex; align-items: center; gap: 12px; min-height: 64px; padding: 0 4px; border-top: 1px solid var(--line); }
     .avatar { display: grid; width: 34px; height: 34px; place-items: center; border: 1px solid var(--ink); border-radius: 50%; background: var(--paper); font-size: 13px; font-weight: 700; }
     .contact strong { display: block; font-size: 14px; }
     .contact span { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; }
-    .empty { padding: 22px 0; border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; line-height: 1.5; }
-    .help { margin-top: 35px; padding-top: 20px; border-top: 1px solid var(--line); color: #4a4a4a; font-size: 13px; line-height: 1.55; }
+    .empty { padding: 22px 0; border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+    .help { margin-top: 35px; padding-top: 20px; border-top: 1px solid var(--line); color: #4a4a4a; font-size: 13px; line-height: 1.55; overflow-wrap: anywhere; }
     .help b { color: var(--ink); }
   </style>
 </head>
