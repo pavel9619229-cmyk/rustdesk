@@ -33,8 +33,6 @@
       grid-template-rows: 92px 1fr;
       background: var(--paper);
       box-shadow: 0 20px 50px rgba(0, 0, 0, .18);
-      transform: scale(1.125);
-      transform-origin: top left;
     }
 
     .titlebar {
@@ -156,19 +154,19 @@
     .copy { border: 0; background: transparent; color: var(--ink); font-family: inherit; font-size: 13px; font-weight: 700; }
 
     .info-area { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) minmax(0, .5fr); grid-template-rows: auto auto auto; gap: 12px 34px; min-width: 0; overflow: hidden; padding: 22px 46px; border-top: 1px solid var(--line); background: var(--quiet); }
-    .masha-note { grid-column: 1; grid-row: 1 / span 3; display: flex; align-items: flex-start; gap: 16px; margin: 0; }
+    .masha-note { grid-column: 1; grid-row: 1 / span 2; display: flex; align-items: flex-start; gap: 16px; margin: 0; }
     .masha-note img { width: 76px; height: 76px; object-fit: contain; }
     .masha-note h2 { margin: 0 0 5px; font-size: 19px; }
     .masha-note p { margin: 0; color: #555555; font-size: 13px; line-height: 1.4; overflow-wrap: anywhere; }
     .recent-title { grid-column: 2; grid-row: 1; margin: 0; font-size: 12px; font-weight: 700; letter-spacing: 1.1px; text-transform: uppercase; }
     .contact { display: flex; align-items: center; gap: 12px; min-height: 38px; padding: 0 4px; border-top: 1px solid var(--line); }
     .contact:nth-of-type(1) { grid-column: 2; grid-row: 2; }
-    .contact:nth-of-type(2) { grid-column: 2; grid-row: 2; }
+    .contact:nth-of-type(2) { grid-column: 3; grid-row: 2; }
     .avatar { display: grid; width: 34px; height: 34px; place-items: center; border: 1px solid var(--ink); border-radius: 50%; background: var(--paper); font-size: 13px; font-weight: 700; }
     .contact strong { display: block; font-size: 14px; }
     .contact span { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; }
     .empty { display: none; }
-    .help { grid-column: 3; grid-row: 1 / span 3; margin: 0; padding: 0; border: 0; color: #4a4a4a; font-size: 13px; line-height: 1.55; overflow-wrap: anywhere; }
+    .help { grid-column: 1 / -1; grid-row: 3; margin: 0; padding-top: 12px; border-top: 1px solid var(--line); color: #4a4a4a; font-size: 12px; line-height: 1.35; overflow-wrap: anywhere; }
     .help b { color: var(--ink); }
   </style>
 </head>
