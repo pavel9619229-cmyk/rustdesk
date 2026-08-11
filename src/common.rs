@@ -54,6 +54,8 @@ pub type NotifyMessageBox = fn(String, String, String, String) -> dyn Future<Out
 
 // the executable name of the portable version
 pub const PORTABLE_APPNAME_RUNTIME_ENV_KEY: &str = "RUSTDESK_APPNAME";
+pub const TECHNICAL_APP_NAME: &str = "masha-remote-operator";
+pub const DISPLAY_APP_NAME: &str = "УДАЛЕННЫЙ ОПЕРАТОР МАША";
 
 pub const PLATFORM_WINDOWS: &str = "Windows";
 pub const PLATFORM_LINUX: &str = "Linux";

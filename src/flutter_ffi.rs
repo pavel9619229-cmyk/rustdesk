@@ -50,7 +50,7 @@ fn initialize(app_dir: &str, custom_client_config: &str) {
     } else {
         crate::read_custom_client(custom_client_config);
     }
-    *config::APP_NAME.write().unwrap() = "УДАЛЕННЫЙ ОПЕРАТОР МАША".to_owned();
+    *config::APP_NAME.write().unwrap() = crate::common::TECHNICAL_APP_NAME.to_owned();
     #[cfg(target_os = "android")]
     {
         // flexi_logger can't work when android_logger initialized.
@@ -1088,11 +1088,11 @@ pub fn main_get_socks() -> Vec<String> {
 }
 
 pub fn main_get_app_name() -> String {
-    get_app_name()
+    crate::common::DISPLAY_APP_NAME.to_owned()
 }
 
 pub fn main_get_app_name_sync() -> SyncReturn<String> {
-    SyncReturn(get_app_name())
+    SyncReturn(crate::common::DISPLAY_APP_NAME.to_owned())
 }
 
 pub fn main_uri_prefix_sync() -> SyncReturn<String> {
