@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Маша - концепт главного окна</title>
+  <style>
+    :root {
+      --ink: #111111;
+      --paper: #ffffff;
+      --muted: #727272;
+      --line: #d9d9d9;
+      --quiet: #f4f4f4;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      width: 1440px;
+      height: 900px;
+      margin: 0;
+      overflow: hidden;
+      background: #dedede;
+      color: var(--ink);
+      font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+    }
+
+    .window {
+      width: 1440px;
+      height: 900px;
+      display: grid;
+      grid-template-columns: 236px 1fr;
+      grid-template-rows: 72px 1fr;
+      background: var(--paper);
+      box-shadow: 0 20px 50px rgba(0, 0, 0, .18);
+    }
+
+    .titlebar {
+      grid-column: 1 / -1;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 24px 0 18px;
+      border-bottom: 1px solid var(--line);
+      background: var(--paper);
+    }
+
+    .brand { display: flex; align-items: center; gap: 12px; }
+    .brand-mark { width: 44px; height: 44px; object-fit: contain; }
+    .brand-name { font-size: 18px; font-weight: 700; letter-spacing: 0; }
+    .brand-name span { display: block; color: var(--muted); font-size: 11px; font-weight: 400; margin-top: 3px; }
+    .window-actions { display: flex; gap: 20px; color: #4b4b4b; font-size: 18px; }
+
+    .sidebar {
+      display: flex;
+      flex-direction: column;
+      padding: 26px 14px 18px;
+      background: var(--ink);
+      color: var(--paper);
+    }
+
+    .sidebar-label {
+      margin: 0 12px 12px;
+      color: #b8b8b8;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 1.2px;
+      text-transform: uppercase;
+    }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-height: 46px;
+      margin-bottom: 4px;
+      padding: 0 12px;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      color: #d7d7d7;
+      font-size: 14px;
+    }
+
+    .nav-item.active { background: var(--paper); color: var(--ink); font-weight: 700; }
+    .nav-glyph { width: 18px; font-size: 18px; text-align: center; }
+    .sidebar-bottom { margin-top: auto; }
+    .version { margin: 14px 12px 0; color: #a4a4a4; font-size: 11px; }
+
+    .main {
+      display: grid;
+      grid-template-columns: minmax(500px, 1.15fr) minmax(340px, .85fr);
+      min-width: 0;
+    }
+
+    .connect-area { padding: 62px 72px; }
+    .eyebrow { margin: 0 0 10px; color: var(--muted); font-size: 12px; font-weight: 700; letter-spacing: 1.1px; text-transform: uppercase; }
+    h1 { max-width: 620px; margin: 0 0 12px; font-size: 36px; line-height: 1.12; letter-spacing: 0; }
+    .intro { max-width: 540px; margin: 0 0 42px; color: #525252; font-size: 16px; line-height: 1.55; }
+
+    .field-label { display: block; margin-bottom: 9px; font-size: 13px; font-weight: 700; }
+    .input-row { display: flex; gap: 10px; }
+    .input {
+      flex: 1;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      padding: 0 17px;
+      border: 1px solid #999999;
+      border-radius: 6px;
+      color: #8a8a8a;
+      font-family: inherit;
+      font-size: 17px;
+    }
+    .paste {
+      width: 56px;
+      height: 56px;
+      border: 1px solid #999999;
+      border-radius: 6px;
+      background: var(--paper);
+      color: var(--ink);
+      font-size: 20px;
+    }
+    .primary {
+      width: 100%;
+      height: 56px;
+      margin-top: 14px;
+      border: 1px solid var(--ink);
+      border-radius: 6px;
+      background: var(--ink);
+      color: var(--paper);
+      font-family: inherit;
+      font-size: 16px;
+      font-weight: 700;
+    }
+    .under-action { margin: 15px 0 0; color: #555555; font-size: 13px; text-align: center; }
+    .under-action strong { color: var(--ink); }
+
+    .device {
+      margin-top: 62px;
+      padding-top: 26px;
+      border-top: 1px solid var(--line);
+    }
+    .device-heading { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 18px; }
+    .device-heading h2 { margin: 0; font-size: 20px; }
+    .status { color: #3c3c3c; font-size: 12px; font-weight: 700; }
+    .status::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 50%; background: var(--ink); }
+    .device-id { display: flex; align-items: center; justify-content: space-between; min-height: 62px; padding: 0 16px; border: 1px solid var(--line); border-radius: 6px; background: var(--quiet); }
+    .device-id small { display: block; margin-bottom: 4px; color: var(--muted); font-size: 11px; }
+    .device-id strong { font-size: 19px; letter-spacing: .5px; }
+    .copy { border: 0; background: transparent; color: var(--ink); font-family: inherit; font-size: 13px; font-weight: 700; }
+
+    .info-area { padding: 58px 46px 44px; border-left: 1px solid var(--line); background: var(--quiet); }
+    .masha-note { display: flex; align-items: center; gap: 16px; margin-bottom: 42px; }
+    .masha-note img { width: 76px; height: 76px; object-fit: contain; }
+    .masha-note h2 { margin: 0 0 5px; font-size: 19px; }
+    .masha-note p { margin: 0; color: #555555; font-size: 13px; line-height: 1.4; }
+    .recent-title { margin: 0 0 14px; font-size: 12px; font-weight: 700; letter-spacing: 1.1px; text-transform: uppercase; }
+    .contact { display: flex; align-items: center; gap: 12px; min-height: 64px; padding: 0 4px; border-top: 1px solid var(--line); }
+    .avatar { display: grid; width: 34px; height: 34px; place-items: center; border: 1px solid var(--ink); border-radius: 50%; background: var(--paper); font-size: 13px; font-weight: 700; }
+    .contact strong { display: block; font-size: 14px; }
+    .contact span { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; }
+    .empty { padding: 22px 0; border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; line-height: 1.5; }
+    .help { margin-top: 35px; padding-top: 20px; border-top: 1px solid var(--line); color: #4a4a4a; font-size: 13px; line-height: 1.55; }
+    .help b { color: var(--ink); }
+  </style>
+</head>
+<body>
+  <main class="window" aria-label="Концепт главного окна УДАЛЕННОГО ОПЕРАТОРА МАША">
+    <header class="titlebar">
+      <div class="brand">
+        <img class="brand-mark" src="../../logoMASHAcompact.jpg" alt="Логотип МАШИ">
+        <div class="brand-name">УДАЛЕННЫЙ ОПЕРАТОР МАША<span>Простая помощь близким</span></div>
+      </div>
+      <div class="window-actions" aria-hidden="true"><span>—</span><span>□</span><span>×</span></div>
+    </header>
+
+    <nav class="sidebar" aria-label="Разделы">
+      <p class="sidebar-label">Навигация</p>
+      <div class="nav-item active"><span class="nav-glyph">⌁</span>Подключение</div>
+      <div class="nav-item"><span class="nav-glyph">◉</span>Мои устройства</div>
+      <div class="nav-item"><span class="nav-glyph">◫</span>Адресная книга</div>
+      <div class="sidebar-bottom">
+        <div class="nav-item"><span class="nav-glyph">?</span>Помощь</div>
+        <div class="nav-item"><span class="nav-glyph">⚙</span>Настройки</div>
+        <p class="version">Версия 1.0 · Концепт интерфейса</p>
+      </div>
+    </nav>
+
+    <section class="main">
+      <section class="connect-area">
+        <p class="eyebrow">Удалённая помощь</p>
+        <h1>Подключитесь к устройству близкого человека</h1>
+        <p class="intro">Введите его ID. После подтверждения соединения вы сможете помочь с настройкой компьютера или телефона.</p>
+        <label class="field-label">ID удалённого устройства</label>
+        <div class="input-row"><div class="input">Например, 123 456 789</div><button class="paste" aria-label="Вставить ID">⌘</button></div>
+        <button class="primary">Подключиться</button>
+        <p class="under-action">Есть одноразовый пароль? <strong>Ввести пароль</strong></p>
+
+        <section class="device">
+          <div class="device-heading"><h2>Это устройство</h2><span class="status">Готово к подключению</span></div>
+          <div class="device-id"><div><small>Ваш ID</small><strong>714 294 036</strong></div><button class="copy">Скопировать</button></div>
+        </section>
+      </section>
+
+      <aside class="info-area">
+        <section class="masha-note"><img src="../../logoMASHAbig.jpg" alt="Маша"><div><h2>Маша рядом</h2><p>Спокойный доступ к доверенным устройствам.</p></div></section>
+        <p class="recent-title">Недавние подключения</p>
+        <div class="contact"><div class="avatar">ЛС</div><div><strong>Людмила Сергеевна</strong><span>Сегодня, 10:42</span></div></div>
+        <div class="contact"><div class="avatar">АК</div><div><strong>Алексей</strong><span>Вчера, 18:20</span></div></div>
+        <div class="empty">Добавьте доверенные устройства в адресную книгу, чтобы подключаться к ним быстрее.</div>
+        <p class="help"><b>Нужна помощь?</b><br>Во время подключения можно разрешить или запретить управление, передачу файлов и буфер обмена.</p>
+      </aside>
+    </section>
+  </main>
+</body>
+</html>
