@@ -30,6 +30,7 @@ macro_rules! my_println{
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn core_main() -> Option<Vec<String>> {
     *config::APP_NAME.write().unwrap() = crate::common::TECHNICAL_APP_NAME.to_owned();
+    crate::common::configure_masha_servers();
     if !crate::common::global_init() {
         return None;
     }

@@ -56,6 +56,12 @@ pub type NotifyMessageBox = fn(String, String, String, String) -> dyn Future<Out
 pub const PORTABLE_APPNAME_RUNTIME_ENV_KEY: &str = "RUSTDESK_APPNAME";
 pub const TECHNICAL_APP_NAME: &str = "masha-remote-operator";
 pub const DISPLAY_APP_NAME: &str = "УДАЛЕННЫЙ ОПЕРАТОР МАША";
+pub const MASHA_RENDEZVOUS_SERVER: &str = "77.222.38.70";
+pub const MASHA_SERVER_PUBLIC_KEY: &str = "9ceMofgvYTVTIC95mhjgmTejoqprMLiaMONVQJo8I=";
+
+pub fn configure_masha_servers() {
+    *config::PROD_RENDEZVOUS_SERVER.write().unwrap() = MASHA_RENDEZVOUS_SERVER.to_owned();
+}
 
 pub const PLATFORM_WINDOWS: &str = "Windows";
 pub const PLATFORM_LINUX: &str = "Linux";
@@ -1820,7 +1826,7 @@ pub async fn get_key(sync: bool) -> String {
         options.remove("key").unwrap_or_default()
     };
     if key.is_empty() {
-        key = config::RS_PUB_KEY.to_owned();
+        key = MASHA_SERVER_PUBLIC_KEY.to_owned();
     }
     key
 }
