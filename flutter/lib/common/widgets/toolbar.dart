@@ -61,7 +61,7 @@ Widget waylandKeyboardScopeChip(BuildContext context, String text) {
     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
     decoration: BoxDecoration(
       borderRadius: BorderRadius.circular(999),
-      border: Border.all(color: colorScheme.primary.withOpacity(0.35)),
+      border: Border.all(color: colorScheme.primary.withValues(alpha: 0.35)),
     ),
     child: Text(
       text,
@@ -520,7 +520,7 @@ List<TTextMenu> toolbarControls(BuildContext context, String id, FFI ffi) {
       (pi.platform == kPeerPlatformLinux || pi.sasEnabled)) {
     v.add(
       TTextMenu(
-          child: Text('${translate("Insert Ctrl + Alt + Del")}'),
+          child: Text(translate("Insert Ctrl + Alt + Del")),
           onPressed: () => bind.sessionCtrlAltDel(sessionId: sessionId)),
     );
   }

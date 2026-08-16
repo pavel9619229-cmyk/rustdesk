@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Маша - сборка навигации</title>
+  <style>
+    :root {
+      --ink: #111111;
+      --paper: #ffffff;
+      --muted: #727272;
+      --line: #d9d9d9;
+      --quiet: #f4f4f4;
+      --accent: #6f973a;
+      --accent-dark: #3f5c1f;
+      --titlebar-h: 92px;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      background: #dedede;
+      color: var(--ink);
+      font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+    }
+
+    .window {
+      position: relative;
+      width: 100vw;
+      max-width: 900px;
+      height: 100vh;
+      max-height: 1440px;
+      margin: 0 auto;
+      background: var(--paper);
+      box-shadow: 0 20px 50px rgba(0, 0, 0, .18);
+      overflow: hidden;
+    }
+
+    .titlebar {
+      display: flex;
+      align-items: stretch;
+      border-bottom: 1px solid #303030;
+    }
+
+    .brand-mark-cell { flex: 0 0 var(--titlebar-h); width: var(--titlebar-h); height: var(--titlebar-h); background: #ffffff; }
+    .brand-mark { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+    .brand-text-cell {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex: 1 1 auto;
+      min-width: 0;
+      gap: 12px;
+      padding: 0 24px 0 18px;
+      background: var(--ink);
+    }
+    .brand-title-group { display: flex; align-items: center; gap: 14px; min-width: 0; }
+    .back-btn {
+      flex: 0 0 auto;
+      width: 36px;
+      height: 36px;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid #4a4a4a;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--paper);
+      font-size: 18px;
+      cursor: pointer;
+    }
+    .brand-name { min-width: 0; color: var(--paper); font-size: 27px; font-weight: 700; letter-spacing: 0; }
+    .brand-name span { display: block; max-width: 700px; color: #d0d0d0; font-size: 13.5px; font-weight: 700; line-height: 1.35; margin-top: 4px; text-transform: uppercase; }
+    .window-actions { flex: 0 0 auto; display: flex; gap: 13px; color: #d0d0d0; font-size: 16px; }
+
+    .home-btn {
+      display: none;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      height: var(--titlebar-h);
+      border: 0;
+      border-bottom: 1px solid #303030;
+      background: #8a8a8a;
+      color: var(--paper);
+      font-family: inherit;
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      cursor: pointer;
+    }
+    .page.has-back .home-btn { display: flex; }
+
+    .page { position: absolute; inset: 0; display: none; min-height: 0; }
+    .page.active { display: grid; grid-template-rows: var(--titlebar-h) 1fr; }
+    .page.active.has-back { grid-template-rows: var(--titlebar-h) var(--titlebar-h) 1fr; }
+
+    /* --- Стартовая страница: 3 панели --- */
+    .panels { display: flex; flex-direction: column; min-height: 0; }
+    .panel {
+      flex: 1 1 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 18px;
+      min-height: 0;
+      border: 0;
+      border-bottom: 1px solid var(--line);
+      background: var(--paper);
+      color: var(--ink);
+      font-family: inherit;
+      cursor: pointer;
+    }
+    .panel:last-child { border-bottom: 0; }
+    .panel-glyph { font-size: 44px; line-height: 1; }
+    .panel-label { font-size: 26px; font-weight: 700; letter-spacing: .5px; text-align: center; text-transform: uppercase; }
+    .panel-connect { background: var(--accent); color: var(--paper); }
+    .panel-allow { background: var(--accent-dark); color: var(--paper); }
+    .panel-settings { background: var(--paper); color: var(--ink); }
+
+    /* --- Страница 2: Подключиться к удалённому устройству --- */
+    .connect-body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 14px;
+      padding: 32px 40px 40px;
+      background: var(--accent);
+      color: var(--paper);
+      overflow: auto;
+    }
+    .connect-title {
+      max-width: 640px;
+      margin: 0 0 8px;
+      font-size: 26px;
+      font-weight: 700;
+      line-height: 1.25;
+      text-align: center;
+      text-transform: uppercase;
+    }
+    .connect-field-label {
+      margin: 10px 0 0;
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: .5px;
+      text-align: center;
+      text-transform: uppercase;
+    }
+    .connect-field {
+      width: 100%;
+      max-width: 420px;
+      height: 56px;
+      border: 1px solid rgba(255,255,255,.4);
+      border-radius: 6px;
+      background: rgba(255,255,255,.12);
+      color: var(--paper);
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      text-align: center;
+    }
+    .connect-field::placeholder { color: rgba(255,255,255,.65); }
+
+    /* --- Страница 3: Разрешить подключение к данному устройству --- */
+    .allow-body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 14px;
+      padding: 32px 40px 40px;
+      background: var(--accent-dark);
+      color: var(--paper);
+      overflow: auto;
+    }
+    .allow-title {
+      max-width: 640px;
+      margin: 0 0 8px;
+      font-size: 26px;
+      font-weight: 700;
+      line-height: 1.25;
+      text-align: center;
+      text-transform: uppercase;
+    }
+    .allow-field-label {
+      margin: 10px 0 0;
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: .5px;
+      text-align: center;
+      text-transform: uppercase;
+    }
+    .allow-field {
+      width: 100%;
+      max-width: 420px;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid rgba(255,255,255,.4);
+      border-radius: 6px;
+      background: rgba(255,255,255,.12);
+      color: var(--paper);
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: 1px;
+    }
+
+    /* --- Страница настроек (текущая стартовая сборка) --- */
+    .settings-body {
+      display: grid;
+      grid-template-columns: 1fr;
+      grid-template-rows: auto 1fr;
+      min-width: 0;
+      min-height: 0;
+      overflow: auto;
+    }
+    .connect-area { overflow: hidden; padding: 40px 42px 24px; background: #6f973a; }
+    .eyebrow { margin: 0 0 10px; color: var(--muted); font-size: 12px; font-weight: 700; letter-spacing: 1.1px; text-transform: uppercase; }
+    .connect-area h1 { max-width: 540px; margin: 0 0 12px; font-size: 28px; line-height: 1.15; letter-spacing: 0; color: var(--ink); }
+    .intro { max-width: 520px; margin: 0 0 24px; color: #27351a; font-size: 15px; line-height: 1.45; }
+    .field-label { display: block; margin-bottom: 9px; font-size: 13px; font-weight: 700; }
+    .input-row { display: flex; max-width: 100%; gap: 10px; }
+    .input {
+      flex: 1; min-width: 0; height: 52px; display: flex; align-items: center;
+      padding: 0 17px; border: 1px solid #999999; border-radius: 6px; color: #8a8a8a; font-size: 16px;
+    }
+    .paste { width: 52px; height: 52px; border: 1px solid #999999; border-radius: 6px; background: var(--paper); color: var(--ink); font-size: 18px; }
+    .primary {
+      width: 100%; max-width: 100%; height: 52px; margin-top: 14px; border: 1px solid var(--ink);
+      border-radius: 6px; background: var(--ink); color: var(--paper); font-family: inherit; font-size: 15px; font-weight: 700;
+    }
+    .under-action { margin: 15px 0 0; color: #555555; font-size: 13px; text-align: center; }
+    .under-action strong { color: var(--ink); }
+    .device { margin-top: 32px; max-width: 100%; padding-top: 18px; border-top: 1px solid rgba(0,0,0,.15); }
+    .device-heading { display: flex; flex-wrap: wrap; gap: 8px 16px; justify-content: space-between; align-items: baseline; margin-bottom: 16px; }
+    .device-heading h2 { margin: 0; font-size: 19px; }
+    .status { color: #22301a; font-size: 12px; font-weight: 700; }
+    .status::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 50%; background: var(--ink); }
+    .device-id { display: flex; align-items: center; justify-content: space-between; max-width: 100%; min-height: 58px; padding: 0 16px; border: 1px solid rgba(0,0,0,.15); border-radius: 6px; background: rgba(255,255,255,.55); }
+    .device-id small { display: block; margin-bottom: 4px; color: #27351a; font-size: 11px; }
+    .device-id strong { font-size: 18px; letter-spacing: .5px; }
+    .copy { border: 0; background: transparent; color: var(--ink); font-family: inherit; font-size: 13px; font-weight: 700; }
+
+    .info-area { display: grid; grid-template-columns: 1fr; grid-auto-rows: auto; gap: 18px; min-width: 0; padding: 26px 34px 34px; background: var(--quiet); }
+    .masha-note { display: flex; align-items: flex-start; gap: 16px; margin: 0; }
+    .masha-note img { width: 64px; height: 64px; object-fit: cover; }
+    .masha-note h2 { margin: 0 0 5px; font-size: 18px; }
+    .masha-note p { margin: 0; color: #555555; font-size: 13px; line-height: 1.4; }
+    .recent-title { margin: 0; font-size: 12px; font-weight: 700; letter-spacing: 1.1px; text-transform: uppercase; }
+    .contact { display: flex; align-items: center; gap: 12px; min-height: 38px; padding: 0 4px; border-top: 1px solid var(--line); }
+    .avatar { display: grid; width: 34px; height: 34px; place-items: center; border: 1px solid var(--ink); border-radius: 50%; background: var(--paper); font-size: 13px; font-weight: 700; }
+    .contact strong { display: block; font-size: 14px; }
+    .contact span { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; }
+    .help { margin: 0; padding-top: 16px; border-top: 1px solid var(--line); color: #4a4a4a; font-size: 12px; line-height: 1.45; }
+    .help b { color: var(--ink); }
+
+    /* --- Адаптивность: узкие экраны (смартфон) --- */
+    @media (max-width: 480px) {
+      :root { --titlebar-h: 68px; }
+      .brand-name { font-size: 18px; }
+      .brand-name span { display: none; }
+      .panel-glyph { font-size: 34px; }
+      .panel-label { font-size: 18px; }
+      .stub-label { font-size: 20px; }
+      .connect-area { padding: 24px 20px 18px; }
+      .connect-area h1 { font-size: 21px; }
+      .info-area { padding: 20px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="window" aria-label="Сборка навигации УДАЛЕННОГО ОПЕРАТОРА МАША">
+
+    <!-- Страница 1: стартовая (masha-frontend-STARTPAGE) -->
+    <section class="page active" data-page="1">
+      <header class="titlebar">
+        <div class="brand-mark-cell">
+          <img class="brand-mark" src="../../logoMASHAbig.jpg" alt="Логотип МАШИ">
+        </div>
+        <div class="brand-text-cell">
+          <div class="brand-title-group">
+            <button class="back-btn" type="button" aria-label="Назад" data-go="1">←</button>
+            <div class="brand-name">УДАЛЕННЫЙ ОПЕРАТОР МАША<span>ПРОГРАММА ДЛЯ ПОДКЛЮЧЕНИЯ К УДАЛЕННОМУ КОМПЬЮТЕРУ НА БАЗЕ РОССИЙСКИХ СЕРВЕРОВ</span></div>
+          </div>
+          <div class="window-actions" aria-hidden="true"><span>—</span><span>□</span><span>×</span></div>
+        </div>
+      </header>
+      <nav class="panels" aria-label="Стартовые действия">
+        <button class="panel panel-connect" type="button" data-go="2">
+          <span class="panel-glyph" aria-hidden="true">⌁</span>
+          <span class="panel-label">Подключиться к удалённому устройству</span>
+        </button>
+        <button class="panel panel-allow" type="button" data-go="3">
+          <span class="panel-glyph" aria-hidden="true">◉</span>
+          <span class="panel-label">Разрешить подключение к данному устройству</span>
+        </button>
+        <button class="panel panel-settings" type="button" data-go="4">
+          <span class="panel-glyph" aria-hidden="true">⚙</span>
+          <span class="panel-label">Настройки</span>
+        </button>
+      </nav>
+    </section>
+
+    <!-- Страница 2: Подключиться к удалённому устройству (заглушка) -->
+    <section class="page has-back" data-page="2">
+      <header class="titlebar">
+        <div class="brand-mark-cell">
+          <img class="brand-mark" src="../../logoMASHAbig.jpg" alt="Логотип МАШИ">
+        </div>
+        <div class="brand-text-cell">
+          <div class="brand-title-group">
+            <div class="brand-name">УДАЛЕННЫЙ ОПЕРАТОР МАША<span>ПРОГРАММА ДЛЯ ПОДКЛЮЧЕНИЯ К УДАЛЕННОМУ КОМПЬЮТЕРУ НА БАЗЕ РОССИЙСКИХ СЕРВЕРОВ</span></div>
+          </div>
+          <div class="window-actions" aria-hidden="true"><span>—</span><span>□</span><span>×</span></div>
+        </div>
+      </header>
+      <button class="home-btn" type="button" data-go="1">ВЕРНУТЬСЯ НА ГЛАВНУЮ СТРАНИЦУ</button>
+      <div class="connect-body">
+        <p class="connect-title">Подключиться к удалённому устройству</p>
+        <p class="connect-field-label">Укажите ID удалённого устройства:</p>
+        <input class="connect-field" type="text" placeholder="000 000 000">
+        <p class="connect-field-label">Укажите пароль удалённого устройства</p>
+        <input class="connect-field" type="text" placeholder="••••••••">
+      </div>
+    </section>
+
+    <!-- Страница 3: Разрешить подключение к себе (заглушка) -->
+    <section class="page has-back" data-page="3">
+      <header class="titlebar">
+        <div class="brand-mark-cell">
+          <img class="brand-mark" src="../../logoMASHAbig.jpg" alt="Логотип МАШИ">
+        </div>
+        <div class="brand-text-cell">
+          <div class="brand-title-group">
+            <div class="brand-name">УДАЛЕННЫЙ ОПЕРАТОР МАША<span>ПРОГРАММА ДЛЯ ПОДКЛЮЧЕНИЯ К УДАЛЕННОМУ КОМПЬЮТЕРУ НА БАЗЕ РОССИЙСКИХ СЕРВЕРОВ</span></div>
+          </div>
+          <div class="window-actions" aria-hidden="true"><span>—</span><span>□</span><span>×</span></div>
+        </div>
+      </header>
+      <button class="home-btn" type="button" data-go="1">ВЕРНУТЬСЯ НА ГЛАВНУЮ СТРАНИЦУ</button>
+      <div class="allow-body">
+        <p class="allow-title">Разрешить подключение к данному устройству</p>
+        <p class="allow-field-label">ID вашего устройства:</p>
+        <div class="allow-field">714 294 036</div>
+        <p class="allow-field-label">Сообщите этот пароль удалённому оператору</p>
+        <div class="allow-field">a8k4-72qz</div>
+      </div>
+    </section>
+
+    <!-- Страница 4: Настройки (содержимое текущей стартовой сборки) -->
+    <section class="page has-back" data-page="4">
+      <header class="titlebar">
+        <div class="brand-mark-cell">
+          <img class="brand-mark" src="../../logoMASHAbig.jpg" alt="Логотип МАШИ">
+        </div>
+        <div class="brand-text-cell">
+          <div class="brand-title-group">
+            <div class="brand-name">УДАЛЕННЫЙ ОПЕРАТОР МАША<span>ПРОГРАММА ДЛЯ ПОДКЛЮЧЕНИЯ К УДАЛЕННОМУ КОМПЬЮТЕРУ НА БАЗЕ РОССИЙСКИХ СЕРВЕРОВ</span></div>
+          </div>
+          <div class="window-actions" aria-hidden="true"><span>—</span><span>□</span><span>×</span></div>
+        </div>
+      </header>
+      <button class="home-btn" type="button" data-go="1">ВЕРНУТЬСЯ НА ГЛАВНУЮ СТРАНИЦУ</button>
+      <div class="settings-body">
+        <section class="connect-area">
+          <p class="eyebrow">Удалённая помощь</p>
+          <h1>Подключитесь к устройству близкого человека</h1>
+          <p class="intro">Введите его ID. После подтверждения соединения вы сможете помочь с настройкой компьютера или телефона.</p>
+          <label class="field-label">ID удалённого устройства</label>
+          <div class="input-row"><div class="input">Например, 123 456 789</div><button class="paste" aria-label="Вставить ID">⌘</button></div>
+          <button class="primary">Подключиться</button>
+          <p class="under-action">Есть одноразовый пароль? <strong>Ввести пароль</strong></p>
+          <section class="device">
+            <div class="device-heading"><h2>Это устройство</h2><span class="status">Готово к подключению</span></div>
+            <div class="device-id"><div><small>Ваш ID</small><strong>714 294 036</strong></div><button class="copy">Скопировать</button></div>
+          </section>
+        </section>
+        <aside class="info-area">
+          <section class="masha-note"><img src="../../logoMASHAbig.jpg" alt="Маша"><div><h2>Маша рядом</h2><p>Спокойный доступ к доверенным устройствам.</p></div></section>
+          <p class="recent-title">Недавние подключения</p>
+          <div class="contact"><div class="avatar">ЛС</div><div><strong>Людмила Сергеевна</strong><span>Сегодня, 10:42</span></div></div>
+          <div class="contact"><div class="avatar">АК</div><div><strong>Алексей</strong><span>Вчера, 18:20</span></div></div>
+          <p class="help"><b>Нужна помощь?</b><br>Во время подключения можно разрешить или запретить управление, передачу файлов и буфер обмена.</p>
+        </aside>
+      </div>
+    </section>
+
+  </main>
+
+  <script>
+    document.querySelectorAll('[data-go]').forEach(function (el) {
+      el.addEventListener('click', function () {
+        var target = el.getAttribute('data-go');
+        document.querySelectorAll('.page').forEach(function (p) {
+          p.classList.toggle('active', p.getAttribute('data-page') === target);
+        });
+      });
+    });
+  </script>
+</body>
+</html>

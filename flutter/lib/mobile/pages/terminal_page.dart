@@ -282,7 +282,7 @@ class _TerminalPageState extends State<TerminalPage>
             width: 44, // iOS standard tap target size
             height: 44,
             decoration: BoxDecoration(
-              color: Colors.black.withOpacity(0.5), // Half transparency
+              color: Colors.black.withValues(alpha: 0.5), // Half transparency
               shape: BoxShape.circle,
             ),
             child: Material(
@@ -376,7 +376,7 @@ class _TerminalPageState extends State<TerminalPage>
         minimumSize: const Size(48, 32),
         padding: EdgeInsets.zero,
         textStyle: const TextStyle(fontSize: 12),
-        backgroundColor: Theme.of(context).colorScheme.surfaceVariant,
+        backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
         foregroundColor: Theme.of(context).colorScheme.onSurfaceVariant,
       ),
     );
@@ -427,9 +427,7 @@ class _TerminalPageState extends State<TerminalPage>
         break;
     }
 
-    if (send != null) {
-      _terminalModel.sendVirtualKey(send);
-    }
+    _terminalModel.sendVirtualKey(send);
   }
 
   // https://github.com/TerminalStudio/xterm.dart/issues/42#issuecomment-877495472

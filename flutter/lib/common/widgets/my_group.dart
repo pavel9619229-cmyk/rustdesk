@@ -64,7 +64,7 @@ class _MyGroupState extends State<MyGroup> {
           decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(12),
               border:
-                  Border.all(color: Theme.of(context).colorScheme.background)),
+                  Border.all(color: Theme.of(context).colorScheme.surface)),
           child: Container(
             width: 150,
             height: double.infinity,
@@ -100,7 +100,7 @@ class _MyGroupState extends State<MyGroup> {
           decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(6),
               border:
-                  Border.all(color: Theme.of(context).colorScheme.background)),
+                  Border.all(color: Theme.of(context).colorScheme.surface)),
           child: Container(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -219,7 +219,7 @@ class _MyGroupState extends State<MyGroup> {
             border: Border(
                 bottom: BorderSide(
                     width: 0.7,
-                    color: Theme.of(context).dividerColor.withOpacity(0.1))),
+                    color: Theme.of(context).dividerColor.withValues(alpha: 0.1))),
           ),
           child: Container(
             child: Row(
@@ -287,7 +287,7 @@ class _MyGroupState extends State<MyGroup> {
             border: Border(
                 bottom: BorderSide(
                     width: 0.7,
-                    color: Theme.of(context).dividerColor.withOpacity(0.1))),
+                    color: Theme.of(context).dividerColor.withValues(alpha: 0.1))),
           ),
           child: Container(
             child: Row(

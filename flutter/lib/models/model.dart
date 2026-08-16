@@ -651,7 +651,7 @@ class FfiModel with ChangeNotifier {
                                     ? (defaultOrSelectedGroupValue.value ==
                                             kValuePrinterIncomingJobSelected
                                         ? MyTheme.button
-                                        : MyTheme.button.withOpacity(0.5))
+                                        : MyTheme.button.withValues(alpha: 0.5))
                                     : Theme.of(context).cardColor,
                                 borderRadius: BorderRadius.all(
                                   Radius.circular(5.0),
@@ -2980,7 +2980,7 @@ class CursorModel with ChangeNotifier {
   double _displayOriginY = 0;
   DateTime? _firstUpdateMouseTime;
   Rect? _windowRect;
-  List<RemoteWindowCoords> _remoteWindowCoords = [];
+  final List<RemoteWindowCoords> _remoteWindowCoords = [];
   bool gotMouseControl = true;
   DateTime _lastPeerMouse = DateTime.now()
       .subtract(Duration(milliseconds: 3000 * kMouseControlTimeoutMSec));

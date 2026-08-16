@@ -132,7 +132,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       value: gFFI.serverModel,
       child: Container(
         width: isIncomingOnly ? 280.0 : 200.0,
-        color: Theme.of(context).colorScheme.background,
+        color: Theme.of(context).colorScheme.surface,
         child: Stack(
           children: [
             Column(
@@ -159,7 +159,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                         Icons.settings,
                         color: _editHover.value
                             ? textColor
-                            : Colors.grey.withOpacity(0.5),
+                            : Colors.grey.withValues(alpha: 0.5),
                         size: 22,
                       ),
                     ),
@@ -220,7 +220,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                                   .textTheme
                                   .titleLarge
                                   ?.color
-                                  ?.withOpacity(0.5)),
+                                  ?.withValues(alpha: 0.5)),
                         ).marginOnly(top: 5),
                         buildPopupMenu(context)
                       ],
@@ -267,11 +267,11 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             radius: 15,
             backgroundColor: hover.value
                 ? Theme.of(context).scaffoldBackgroundColor
-                : Theme.of(context).colorScheme.background,
+                : Theme.of(context).colorScheme.surface,
             child: Icon(
               Icons.more_vert_outlined,
               size: 20,
-              color: hover.value ? textColor : textColor?.withOpacity(0.5),
+              color: hover.value ? textColor : textColor?.withValues(alpha: 0.5),
             ),
           ),
         ),
@@ -316,7 +316,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                   AutoSizeText(
                     translate("One-time Password"),
                     style: TextStyle(
-                        fontSize: 14, color: textColor?.withOpacity(0.5)),
+                        fontSize: 14, color: textColor?.withValues(alpha: 0.5)),
                     maxLines: 1,
                   ),
                   Row(
@@ -1105,7 +1105,7 @@ void setPasswordDialog({VoidCallback? notEmptyCallback}) async {
             close();
           },
           buttonStyle: ButtonStyle(
-              backgroundColor: MaterialStatePropertyAll(Colors.red)),
+              backgroundColor: WidgetStatePropertyAll(Colors.red)),
         );
         final okButton = dialogButton(
           "OK",

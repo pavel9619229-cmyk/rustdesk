@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Маша - концепт стартовой страницы</title>
+  <style>
+    :root {
+      --ink: #111111;
+      --paper: #ffffff;
+      --muted: #727272;
+      --line: #d9d9d9;
+      --quiet: #f4f4f4;
+      --accent: #6f973a;
+      --accent-dark: #3f5c1f;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      width: 900px;
+      height: 1440px;
+      margin: 0;
+      overflow: hidden;
+      background: #dedede;
+      color: var(--ink);
+      font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+    }
+
+    .window {
+      width: 900px;
+      height: 1440px;
+      display: grid;
+      grid-template-rows: 92px 1fr;
+      background: var(--paper);
+      box-shadow: 0 20px 50px rgba(0, 0, 0, .18);
+    }
+
+    .titlebar {
+      display: flex;
+      align-items: stretch;
+      border-bottom: 1px solid #303030;
+    }
+
+    .brand-mark-cell { flex: 0 0 92px; width: 92px; height: 92px; background: #ffffff; }
+    .brand-mark { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+    .brand-text-cell {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex: 1 1 auto;
+      min-width: 0;
+      padding: 0 24px 0 18px;
+      background: var(--ink);
+    }
+    .brand-name { color: var(--paper); font-size: 27px; font-weight: 700; letter-spacing: 0; }
+    .brand-name span { display: block; max-width: 700px; color: #d0d0d0; font-size: 13.5px; font-weight: 700; line-height: 1.35; margin-top: 4px; text-transform: uppercase; }
+    .window-actions { display: flex; gap: 13px; color: #d0d0d0; font-size: 16px; }
+
+    .panels {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+
+    .panel {
+      flex: 1 1 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 18px;
+      min-height: 0;
+      border: 0;
+      border-bottom: 1px solid var(--line);
+      background: var(--paper);
+      color: var(--ink);
+      font-family: inherit;
+      cursor: pointer;
+    }
+
+    .panel:last-child { border-bottom: 0; }
+
+    .panel-glyph { font-size: 44px; line-height: 1; }
+    .panel-label { font-size: 26px; font-weight: 700; letter-spacing: .5px; text-align: center; text-transform: uppercase; }
+
+    .panel-connect {
+      background: var(--accent);
+      color: var(--paper);
+    }
+
+    .panel-allow {
+      background: var(--accent-dark);
+      color: var(--paper);
+    }
+
+    .panel-settings {
+      background: var(--paper);
+      color: var(--ink);
+    }
+  </style>
+</head>
+<body>
+  <main class="window" aria-label="Концепт стартовой страницы УДАЛЕННОГО ОПЕРАТОРА МАША">
+    <header class="titlebar">
+      <div class="brand-mark-cell">
+        <img class="brand-mark" src="../../logoMASHAbig.jpg" alt="Логотип МАШИ">
+      </div>
+      <div class="brand-text-cell">
+        <div class="brand-name">УДАЛЕННЫЙ ОПЕРАТОР МАША<span>ПРОГРАММА ДЛЯ ПОДКЛЮЧЕНИЯ К УДАЛЕННОМУ КОМПЬЮТЕРУ НА БАЗЕ РОССИЙСКИХ СЕРВЕРОВ</span></div>
+        <div class="window-actions" aria-hidden="true"><span>—</span><span>□</span><span>×</span></div>
+      </div>
+    </header>
+
+    <nav class="panels" aria-label="Стартовые действия">
+      <button class="panel panel-connect">
+        <span class="panel-glyph" aria-hidden="true">⌁</span>
+        <span class="panel-label">Подключиться к удалённому устройству</span>
+      </button>
+      <button class="panel panel-allow">
+        <span class="panel-glyph" aria-hidden="true">◉</span>
+        <span class="panel-label">Разрешить подключение к данному устройству</span>
+      </button>
+      <button class="panel panel-settings">
+        <span class="panel-glyph" aria-hidden="true">⚙</span>
+        <span class="panel-label">Настройки</span>
+      </button>
+    </nav>
+  </main>
+</body>
+</html>

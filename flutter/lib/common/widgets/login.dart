@@ -272,7 +272,7 @@ class _WidgetOPState extends State<WidgetOP> {
                       final bgColor = Theme.of(context)
                           .colorScheme
                           .errorContainer
-                          .withOpacity(0.3);
+                          .withValues(alpha: 0.3);
                       return Container(
                         padding: const EdgeInsets.symmetric(
                             horizontal: 8.0, vertical: 6.0),
@@ -638,7 +638,7 @@ Future<bool?> loginDialog() async {
                       .textTheme
                       .titleLarge
                       ?.color
-                      ?.withOpacity(0.55),
+                      ?.withValues(alpha: 0.55),
             ),
             onTap: onDialogCancel,
             hoverColor: Colors.red,

@@ -837,11 +837,11 @@ class _FileManagerViewState extends State<FileManagerView> {
               if (isWeb)
                 Obx(() => ElevatedButton.icon(
                       style: ButtonStyle(
-                        padding: MaterialStateProperty.all<EdgeInsetsGeometry>(
+                        padding: WidgetStateProperty.all<EdgeInsetsGeometry>(
                             isLocal
                                 ? EdgeInsets.only(left: 10)
                                 : EdgeInsets.only(right: 10)),
-                        backgroundColor: MaterialStateProperty.all(
+                        backgroundColor: WidgetStateProperty.all(
                           selectedItems.items.isEmpty
                               ? MyTheme.accent80
                               : MyTheme.accent,
@@ -896,11 +896,11 @@ class _FileManagerViewState extends State<FileManagerView> {
                     )).marginOnly(left: 16),
               Obx(() => ElevatedButton.icon(
                     style: ButtonStyle(
-                      padding: MaterialStateProperty.all<EdgeInsetsGeometry>(
+                      padding: WidgetStateProperty.all<EdgeInsetsGeometry>(
                           isLocal
                               ? EdgeInsets.only(left: 10)
                               : EdgeInsets.only(right: 10)),
-                      backgroundColor: MaterialStateProperty.all(
+                      backgroundColor: WidgetStateProperty.all(
                         selectedItems.items.isEmpty
                             ? MyTheme.accent80
                             : MyTheme.accent,
@@ -1189,7 +1189,7 @@ class _FileManagerViewState extends State<FileManagerView> {
                                                     color: Theme.of(context)
                                                         .iconTheme
                                                         .color
-                                                        ?.withOpacity(0.7))
+                                                        ?.withValues(alpha: 0.7))
                                                 .paddingAll(4)
                                             : SvgPicture.asset(
                                                 entry.isFile
@@ -1552,7 +1552,7 @@ class _FileManagerViewState extends State<FileManagerView> {
                                         color: Theme.of(context)
                                             .iconTheme
                                             .color
-                                            ?.withOpacity(0.7)),
+                                            ?.withValues(alpha: 0.7)),
                                     SizedBox(width: 10),
                                     Text(
                                       entry.name,
@@ -1605,7 +1605,7 @@ class _FileManagerViewState extends State<FileManagerView> {
           content: TextButton(
                   child: buildWindowsThisPC(context),
                   style: ButtonStyle(
-                      minimumSize: MaterialStateProperty.all(Size(0, 0))),
+                      minimumSize: WidgetStateProperty.all(Size(0, 0))),
                   onPressed: () => onPressed(['/']))
               .marginSymmetric(horizontal: 4)));
     } else {
@@ -1616,7 +1616,7 @@ class _FileManagerViewState extends State<FileManagerView> {
                 content: TextButton(
                   child: Text(e.value),
                   style: ButtonStyle(
-                    minimumSize: MaterialStateProperty.all(
+                    minimumSize: WidgetStateProperty.all(
                       Size(0, 0),
                     ),
                   ),
@@ -1685,7 +1685,7 @@ class _FileManagerViewState extends State<FileManagerView> {
 }
 
 Widget buildWindowsThisPC(BuildContext context, [TextStyle? textStyle]) {
-  final color = Theme.of(context).iconTheme.color?.withOpacity(0.7);
+  final color = Theme.of(context).iconTheme.color?.withValues(alpha: 0.7);
   return Row(children: [
     Icon(Icons.computer, size: 20, color: color),
     SizedBox(width: 10),

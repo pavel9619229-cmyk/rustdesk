@@ -83,7 +83,7 @@ class _DesktopServerPageState extends State<DesktopServerPage>
       child: Consumer<ServerModel>(
         builder: (context, serverModel, child) {
           final body = Scaffold(
-            backgroundColor: Theme.of(context).colorScheme.background,
+            backgroundColor: Theme.of(context).colorScheme.surface,
             body: ConnectionManager(),
           );
           return isLinux
@@ -295,7 +295,7 @@ class ConnectionManagerState extends State<ConnectionManager>
                 windowManager.startDragging();
               },
               child: Container(
-                color: Theme.of(context).colorScheme.background,
+                color: Theme.of(context).colorScheme.surface,
               ),
             ),
           ),
@@ -618,7 +618,7 @@ class _PrivilegeBoardState extends State<_PrivilegeBoard> {
       child: Container(
         decoration: BoxDecoration(
           color: enabled
-              ? (canModify ? MyTheme.accent : MyTheme.accent.withOpacity(0.6))
+              ? (canModify ? MyTheme.accent : MyTheme.accent.withValues(alpha: 0.6))
               : Colors.grey[700],
           borderRadius: BorderRadius.circular(10.0),
         ),
@@ -658,10 +658,10 @@ class _PrivilegeBoardState extends State<_PrivilegeBoard> {
       padding: EdgeInsets.all(5.0),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(10.0),
-        color: Theme.of(context).colorScheme.background,
+        color: Theme.of(context).colorScheme.surface,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.2),
+            color: Colors.black.withValues(alpha: 0.2),
             spreadRadius: 1,
             blurRadius: 1,
             offset: Offset(0, 1.5),
@@ -914,8 +914,9 @@ class _CmControlPanel extends StatelessWidget {
                                 value: d,
                                 groupValue: currentDevice,
                                 onChanged: (v) {
-                                  if (v != null)
+                                  if (v != null) {
                                     AudioInput.setDevice(v, true, true);
+                                  }
                                 },
                                 child: Container(
                                   child: Text(

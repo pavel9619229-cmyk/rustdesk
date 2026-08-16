@@ -137,7 +137,7 @@ class _PeerCardState extends State<_PeerCard>
         : '${peer.username}${peer.username.isNotEmpty && peer.hostname.isNotEmpty ? '@' : ''}${peer.hostname}';
     final greyStyle = TextStyle(
         fontSize: 11,
-        color: Theme.of(context).textTheme.titleLarge?.color?.withOpacity(0.6));
+        color: Theme.of(context).textTheme.titleLarge?.color?.withValues(alpha: 0.6));
     final showNote = _showNote(peer);
 
     return Row(
@@ -171,7 +171,7 @@ class _PeerCardState extends State<_PeerCard>
         Expanded(
           child: Container(
             decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.background,
+              color: Theme.of(context).colorScheme.surface,
               borderRadius: BorderRadius.only(
                 topRight: Radius.circular(_tileRadius),
                 bottomRight: Radius.circular(_tileRadius),
@@ -359,7 +359,7 @@ class _PeerCardState extends State<_PeerCard>
                   ),
                 ),
                 Container(
-                  color: Theme.of(context).colorScheme.background,
+                  color: Theme.of(context).colorScheme.surface,
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -1484,11 +1484,11 @@ Widget build_more(BuildContext context, {bool invert = false}) {
           radius: 14,
           backgroundColor: hover.value
               ? (invert
-                  ? Theme.of(context).colorScheme.background
+                  ? Theme.of(context).colorScheme.surface
                   : Theme.of(context).scaffoldBackgroundColor)
               : (invert
                   ? Theme.of(context).scaffoldBackgroundColor
-                  : Theme.of(context).colorScheme.background),
+                  : Theme.of(context).colorScheme.surface),
           child: Icon(Icons.more_vert,
               size: 18,
               color: hover.value
@@ -1497,7 +1497,7 @@ Widget build_more(BuildContext context, {bool invert = false}) {
                       .textTheme
                       .titleLarge
                       ?.color
-                      ?.withOpacity(0.5)))));
+                      ?.withValues(alpha: 0.5)))));
 }
 
 class TagPainter extends CustomPainter {
