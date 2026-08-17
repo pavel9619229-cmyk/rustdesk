@@ -12,6 +12,8 @@ import 'package:flutter_hbb/consts.dart';
 import 'package:flutter_hbb/desktop/pages/connection_page.dart';
 import 'package:flutter_hbb/desktop/pages/desktop_setting_page.dart';
 import 'package:flutter_hbb/desktop/pages/desktop_tab_page.dart';
+import 'package:flutter_hbb/desktop/pages/masha_connect_page.dart';
+import 'package:flutter_hbb/desktop/pages/masha_allow_page.dart';
 import 'package:flutter_hbb/desktop/widgets/update_progress.dart';
 import 'package:flutter_hbb/models/platform_model.dart';
 import 'package:flutter_hbb/models/server_model.dart';
@@ -222,6 +224,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                                   ?.color
                                   ?.withValues(alpha: 0.5)),
                         ).marginOnly(top: 5),
+                        // TEMP: visual check of Masha mockup screens, remove after review.
+                        buildMashaPreviewButton(context),
                         buildPopupMenu(context)
                       ],
                     ),
@@ -251,6 +255,44 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  // TEMP: opens the new Masha mockup screens in an isolated dialog for visual review.
+  Widget buildMashaPreviewButton(BuildContext context) {
+    return InkWell(
+      onTap: () => showDialog(
+        context: context,
+        builder: (_) => Dialog(
+          insetPadding: const EdgeInsets.all(24),
+          child: SizedBox(
+            width: 480,
+            height: 620,
+            child: DefaultTabController(
+              length: 2,
+              child: Column(
+                children: [
+                  const TabBar(tabs: [
+                    Tab(text: 'Подключиться'),
+                    Tab(text: 'Разрешить'),
+                  ]),
+                  const Expanded(
+                    child: TabBarView(children: [
+                      MashaConnectPage(),
+                      MashaAllowPage(),
+                    ]),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+      child: Tooltip(
+        message: 'Masha preview (temp)',
+        child: Icon(Icons.preview,
+            size: 20, color: Theme.of(context).textTheme.titleLarge?.color),
       ),
     );
   }
