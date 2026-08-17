@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import '../../common.dart';
 import '../../models/model.dart';
 import '../../models/state_model.dart';
+import '../../models/server_model.dart';
 
 const _mashaAccentDark = Color(0xFF3F5C1F);
 
@@ -94,8 +95,8 @@ class _CopyableField extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 16),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(6),
-        color: Colors.white.withValues(alpha: 0.12),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.4)),
+        color: Colors.white.withOpacity(0.12),
+        border: Border.all(color: Colors.white.withOpacity(0.4)),
       ),
       child: Row(
         children: [

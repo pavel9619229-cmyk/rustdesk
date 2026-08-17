@@ -162,7 +162,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                         Icons.settings,
                         color: _editHover.value
                             ? textColor
-                            : Colors.grey.withValues(alpha: 0.5),
+                            : Colors.grey.withOpacity(0.5),
                         size: 22,
                       ),
                     ),
@@ -223,7 +223,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                                   .textTheme
                                   .titleLarge
                                   ?.color
-                                  ?.withValues(alpha: 0.5)),
+                                  ?.withOpacity(0.5)),
                         ).marginOnly(top: 5),
                         // TEMP: visual check of Masha mockup screens, remove after review.
                         buildMashaPreviewButton(context),
@@ -314,7 +314,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             child: Icon(
               Icons.more_vert_outlined,
               size: 20,
-              color: hover.value ? textColor : textColor?.withValues(alpha: 0.5),
+              color: hover.value ? textColor : textColor?.withOpacity(0.5),
             ),
           ),
         ),
@@ -359,7 +359,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                   AutoSizeText(
                     translate("One-time Password"),
                     style: TextStyle(
-                        fontSize: 14, color: textColor?.withValues(alpha: 0.5)),
+                        fontSize: 14, color: textColor?.withOpacity(0.5)),
                     maxLines: 1,
                   ),
                   Row(

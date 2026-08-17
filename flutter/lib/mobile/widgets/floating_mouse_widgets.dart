@@ -25,10 +25,10 @@ const double _kSpaceBetweenLeftRightButtons = 40;
 const double _kLeftRightButtonWidth = 55;
 const double _kLeftRightButtonHeight = 40;
 const double _kBorderWidth = 1;
-final Color _kDefaultBorderColor = Colors.white.withValues(alpha: 0.7);
-final Color _kDefaultColor = Colors.black.withValues(alpha: 0.4);
-final Color _kTapDownColor = Colors.blue.withValues(alpha: 0.7);
-final Color _kWidgetHighlightColor = Colors.white.withValues(alpha: 0.9);
+final Color _kDefaultBorderColor = Colors.white.withOpacity(0.7);
+final Color _kDefaultColor = Colors.black.withOpacity(0.4);
+final Color _kTapDownColor = Colors.blue.withOpacity(0.7);
+final Color _kWidgetHighlightColor = Colors.white.withOpacity(0.9);
 const int _kInputTimerIntervalMillis = 100;
 
 class FloatingMouseWidgets extends StatefulWidget {

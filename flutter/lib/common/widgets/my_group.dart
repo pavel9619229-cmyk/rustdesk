@@ -219,7 +219,7 @@ class _MyGroupState extends State<MyGroup> {
             border: Border(
                 bottom: BorderSide(
                     width: 0.7,
-                    color: Theme.of(context).dividerColor.withValues(alpha: 0.1))),
+                    color: Theme.of(context).dividerColor.withOpacity(0.1))),
           ),
           child: Container(
             child: Row(
@@ -287,7 +287,7 @@ class _MyGroupState extends State<MyGroup> {
             border: Border(
                 bottom: BorderSide(
                     width: 0.7,
-                    color: Theme.of(context).dividerColor.withValues(alpha: 0.1))),
+                    color: Theme.of(context).dividerColor.withOpacity(0.1))),
           ),
           child: Container(
             child: Row(

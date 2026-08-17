@@ -469,7 +469,7 @@ class _ConnectionPageState extends State<ConnectionPage>
                           decoration: BoxDecoration(
                             boxShadow: [
                               BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.3),
+                                color: Colors.black.withOpacity(0.3),
                                 blurRadius: 5,
                                 spreadRadius: 1,
                               ),

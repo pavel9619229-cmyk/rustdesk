@@ -618,7 +618,7 @@ class _PrivilegeBoardState extends State<_PrivilegeBoard> {
       child: Container(
         decoration: BoxDecoration(
           color: enabled
-              ? (canModify ? MyTheme.accent : MyTheme.accent.withValues(alpha: 0.6))
+              ? (canModify ? MyTheme.accent : MyTheme.accent.withOpacity(0.6))
               : Colors.grey[700],
           borderRadius: BorderRadius.circular(10.0),
         ),
@@ -661,7 +661,7 @@ class _PrivilegeBoardState extends State<_PrivilegeBoard> {
         color: Theme.of(context).colorScheme.surface,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.2),
+            color: Colors.black.withOpacity(0.2),
             spreadRadius: 1,
             blurRadius: 1,
             offset: Offset(0, 1.5),

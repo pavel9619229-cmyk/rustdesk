@@ -1234,7 +1234,7 @@ void showOptions(
     // - light theme: 0xff2196f3 (Colors.blue)
     // - dark theme: 0xff212121 (the canvas color?)
     final numBgSelected =
-        Theme.of(context).colorScheme.primary.withValues(alpha: 0.6);
+        Theme.of(context).colorScheme.primary.withOpacity(0.6);
     for (var i = 0; i < pi.displays.length; ++i) {
       children.add(InkWell(
           onTap: () {

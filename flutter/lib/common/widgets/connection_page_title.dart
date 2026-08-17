@@ -28,7 +28,7 @@ Widget getConnectionPageTitle(BuildContext context, bool isWeb) {
                   .textTheme
                   .titleLarge
                   ?.color
-                  ?.withValues(alpha: 0.5),
+                  ?.withOpacity(0.5),
             ),
           ),
         ],

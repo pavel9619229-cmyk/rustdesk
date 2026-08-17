@@ -651,7 +651,7 @@ class FfiModel with ChangeNotifier {
                                     ? (defaultOrSelectedGroupValue.value ==
                                             kValuePrinterIncomingJobSelected
                                         ? MyTheme.button
-                                        : MyTheme.button.withValues(alpha: 0.5))
+                                        : MyTheme.button.withOpacity(0.5))
                                     : Theme.of(context).cardColor,
                                 borderRadius: BorderRadius.all(
                                   Radius.circular(5.0),

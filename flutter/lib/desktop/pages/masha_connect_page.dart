@@ -157,15 +157,11 @@ InputDecoration _fieldDecoration(String hint) => InputDecoration(
       hintText: hint,
       hintStyle: const TextStyle(color: Colors.white54),
       filled: true,
-      fillColor: Colors.white.withValues(alpha: 0.12),
+      fillColor: Colors.white.withOpacity(0.12),
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(6),
-        borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.4)),
-      ),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(6),
-        borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.4)),
+        borderSide: BorderSide(color: Colors.white.withOpacity(0.4)),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(6),

@@ -308,7 +308,7 @@ class AutocompletePeerTileState extends State<AutocompletePeerTile> {
         '${widget.peer.username}${widget.peer.username.isNotEmpty && widget.peer.hostname.isNotEmpty ? '@' : ''}${widget.peer.hostname}';
     final greyStyle = TextStyle(
         fontSize: 11,
-        color: Theme.of(context).textTheme.titleLarge?.color?.withValues(alpha: 0.6));
+        color: Theme.of(context).textTheme.titleLarge?.color?.withOpacity(0.6));
     final child = GestureDetector(
         onTap: () => widget.onSelect(),
         child: Padding(
