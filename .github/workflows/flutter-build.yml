@@ -315,11 +315,22 @@ jobs:
           name: ${{ matrix.job.arch == 'aarch64' && 'topmostwindow-artifacts-ARM64' || 'topmostwindow-artifacts-x64' }}
           path: "./rustdesk"
 
+      - name: Read Masha build number
+        id: masha-version
+        shell: pwsh
+        run: |
+          $versionLine = Select-String -Path flutter/pubspec.yaml -Pattern '^version:\s+.+\+(\d+)$'
+          if (-not $versionLine) {
+            throw 'Masha build number is missing from flutter/pubspec.yaml'
+          }
+          $buildNumber = $versionLine.Matches[0].Groups[1].Value
+          "build-number=$buildNumber" >> $env:GITHUB_OUTPUT
+
       - name: Upload unsigned
         if: env.UPLOAD_ARTIFACT == 'true' || (github.ref == 'refs/heads/udu/1.4.9' && matrix.job.arch == 'x86_64')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: masha-remote-operator-windows-${{ matrix.job.arch }}
+          name: masha-remote-operator-${{ steps.masha-version.outputs.build-number }}-windows-${{ matrix.job.arch }}
           path: rustdesk
 
       - name: Sign rustdesk files

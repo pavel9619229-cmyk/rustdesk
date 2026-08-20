@@ -34,6 +34,10 @@ class DesktopHomePage extends StatefulWidget {
 }
 
 const borderColor = Color(0xFF2F65BA);
+const _mashaPrimaryColor = Color(0xFF6F973A);
+const _mashaSecondaryColor = Color(0xFF3F5C1F);
+
+enum _MashaHomeSection { start, connect, allow }
 
 class _DesktopHomePageState extends State<DesktopHomePage>
     with AutomaticKeepAliveClientMixin, WidgetsBindingObserver {
@@ -55,20 +59,184 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   final RxBool _block = false.obs;
 
   final GlobalKey _childKey = GlobalKey();
+  _MashaHomeSection _mashaSection = _MashaHomeSection.start;
 
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    final isIncomingOnly = bind.isIncomingOnly();
-    return _buildBlock(
-        child: Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    switch (_mashaSection) {
+      case _MashaHomeSection.connect:
+        return _buildBlock(
+          child: _buildMashaSectionPage(
+            child: buildRightPane(context),
+          ),
+        );
+      case _MashaHomeSection.allow:
+        return _buildBlock(
+          child: _buildMashaSectionPage(
+            child: Center(child: buildLeftPane(context, width: 360)),
+          ),
+        );
+      case _MashaHomeSection.start:
+        return _buildBlock(child: _buildMashaStartPage());
+    }
+  }
+
+  Widget _buildMashaStartPage() {
+    return Column(
       children: [
-        buildLeftPane(context),
-        if (!isIncomingOnly) const VerticalDivider(width: 1),
-        if (!isIncomingOnly) Expanded(child: buildRightPane(context)),
+        _buildMashaHeader(),
+        Expanded(
+          child: Column(
+            children: [
+              _buildMashaAction(
+                color: _mashaPrimaryColor,
+                icon: Icons.link,
+                label: 'ПОДКЛЮЧИТЬСЯ К УДАЛЁННОМУ УСТРОЙСТВУ',
+                onTap: () => setState(
+                    () => _mashaSection = _MashaHomeSection.connect),
+              ),
+              _buildMashaAction(
+                color: _mashaSecondaryColor,
+                icon: Icons.radio_button_checked,
+                label: 'РАЗРЕШИТЬ ПОДКЛЮЧЕНИЕ К ДАННОМУ УСТРОЙСТВУ',
+                onTap: () =>
+                    setState(() => _mashaSection = _MashaHomeSection.allow),
+              ),
+              _buildMashaAction(
+                color: Colors.white,
+                foregroundColor: Colors.black,
+                icon: Icons.settings,
+                label: 'НАСТРОЙКИ',
+                onTap: DesktopTabPage.onAddSetting,
+              ),
+            ],
+          ),
+        ),
       ],
-    ));
+    );
+  }
+
+  Widget _buildMashaHeader() {
+    return Container(
+      height: 92,
+      color: const Color(0xFF111111),
+      child: Row(
+        children: [
+          Container(
+            width: 92,
+            color: Colors.white,
+            padding: const EdgeInsets.all(5),
+            child: Image.asset('assets/logo.png', fit: BoxFit.contain),
+          ),
+          const Expanded(
+            child: Padding(
+              padding: EdgeInsets.symmetric(horizontal: 24),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'УДАЛЕННЫЙ ОПЕРАТОР МАША',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 27,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  SizedBox(height: 4),
+                  Text(
+                    'БЕЗОПАСНОЕ УДАЛЕННОЕ ПОДКЛЮЧЕНИЕ',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Color(0xFFD0D0D0),
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMashaAction({
+    required Color color,
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+    Color foregroundColor = Colors.white,
+  }) {
+    return Expanded(
+      child: Material(
+        color: color,
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(icon, size: 44, color: foregroundColor),
+                const SizedBox(width: 22),
+                Flexible(
+                  child: Text(
+                    label,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: foregroundColor,
+                      fontSize: 26,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMashaSectionPage({required Widget child}) {
+    return Column(
+      children: [
+        _buildMashaHeader(),
+        Material(
+          color: const Color(0xFF8A8A8A),
+          child: InkWell(
+            onTap: () =>
+                setState(() => _mashaSection = _MashaHomeSection.start),
+            child: const SizedBox(
+              height: 52,
+              width: double.infinity,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.home_outlined, color: Colors.white),
+                  SizedBox(width: 10),
+                  Text(
+                    'ВЕРНУТЬСЯ НА ГЛАВНУЮ',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        Expanded(child: child),
+      ],
+    );
   }
 
   Widget _buildBlock({required Widget child}) {
@@ -76,7 +244,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         block: _block, mask: true, use: canBeBlocked, child: child);
   }
 
-  Widget buildLeftPane(BuildContext context) {
+  Widget buildLeftPane(BuildContext context, {double? width}) {
     final isIncomingOnly = bind.isIncomingOnly();
     final isOutgoingOnly = bind.isOutgoingOnly();
     final children = <Widget>[
@@ -131,7 +299,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     return ChangeNotifierProvider.value(
       value: gFFI.serverModel,
       child: Container(
-        width: isIncomingOnly ? 280.0 : 200.0,
+        width: width ?? (isIncomingOnly ? 280.0 : 200.0),
         color: Theme.of(context).colorScheme.background,
         child: Stack(
           children: [
