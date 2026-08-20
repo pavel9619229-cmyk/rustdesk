@@ -61,6 +61,17 @@
 * Do not make formatting-only changes.
 * Keep naming/style consistent with nearby code.
 
+## Masha Build Naming
+
+* Before each new Masha build, determine and report its next sequential build number.
+* Every finished build artifact name must contain `masha-remote-operator` and the build number.
+* Artifact format: `masha-remote-operator-<build-number>-<platform>-<architecture>`.
+* Download folder format: `artifacts/masha-remote-operator-<build-number>/`.
+* Put any additional qualifiers after the build number.
+* Example: `masha-remote-operator-15-windows-x86_64` in `artifacts/masha-remote-operator-15/`.
+* Increment the Masha build number by one from the previous build.
+* Do not use the long internal GitHub Actions run ID as the sequential build number.
+
 ## Localization (`src/lang/*.rs`)
 
 Each file is a `HashMap<key, translation>`. Layout:
