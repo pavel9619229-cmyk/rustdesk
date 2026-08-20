@@ -522,6 +522,9 @@ class _ConnectionPageState extends State<ConnectionPage>
                     onPressed: () {
                       onConnect();
                     },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF6F973A),
+                    ),
                     child: Text(translate("Connect")),
                   ),
                 ),
