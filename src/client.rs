@@ -255,6 +255,47 @@ impl Client {
         if config::is_incoming_only() {
             bail!("Incoming only mode");
         }
+
+        // Masha authorization runs before Direct IP/domain branches.
+        let (auth_target, operator_id) = {
+            let lch = interface.get_lch();
+            let lc = lch.read().unwrap();
+            let target = lc
+                .other_server
+                .as_ref()
+                .map(|(id, _, _)| id.clone())
+                .unwrap_or_else(|| peer.to_owned());
+            let my_id = Config::get_id();
+            let operator = if lc.other_server.is_some() {
+                format!("{my_id}@{}", Config::get_rendezvous_server())
+            } else {
+                my_id
+            };
+            (target, operator)
+        };
+        let auth_conn_type = crate::masha_session_auth::connection_type_for_client(
+            &auth_target,
+            conn_type,
+        );
+        match crate::masha_session_auth::request_ticket(
+            &operator_id,
+            &auth_target,
+            &auth_conn_type,
+            crate::VERSION,
+        )
+        .await
+        {
+            Ok(ticket) => {
+                interface.get_lch().write().unwrap().masha_session_ticket = Some(ticket);
+            }
+            Err(err) => {
+                interface.get_lch().write().unwrap().masha_session_ticket = None;
+                if crate::masha_session_auth::is_enforced() {
+                    bail!("Masha server authorization failed: {err}");
+                }
+                log::warn!("Masha server authorization test-mode failure: {err}");
+            }
+        }
         // to-do: remember the port for each peer, so that we can retry easier
         if hbb_common::is_ip_str(peer) {
             return Ok((
@@ -1743,6 +1784,7 @@ pub struct LoginConfigHandler {
     pub version: i64,
     features: Option<Features>,
     pub session_id: u64, // used for local <-> server communication
+    masha_session_ticket: Option<String>,
     pub supported_encoding: SupportedEncoding,
     restarting_remote_device: bool,
     // Start time of the restart grace window. On Windows the peer may briefly
@@ -3631,6 +3673,21 @@ async fn send_login(
     password: Vec<u8>,
     peer: &mut Stream,
 ) {
+    if let Some(ticket) = lc.read().unwrap().masha_session_ticket.clone() {
+        let mut auth_msg = Message::new();
+        auth_msg.set_message_box(MessageBox {
+            msgtype: crate::masha_session_auth::TICKET_MESSAGE_TYPE.to_owned(),
+            title: String::new(),
+            text: ticket,
+            link: String::new(),
+            ..Default::default()
+        });
+        allow_err!(peer.send(&auth_msg).await);
+    } else if crate::masha_session_auth::is_enforced() {
+        log::error!("Masha session ticket missing before LoginRequest");
+        return;
+    }
+
     let msg_out = lc
         .read()
         .unwrap()
