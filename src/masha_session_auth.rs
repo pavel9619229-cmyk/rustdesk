@@ -75,7 +75,7 @@ pub fn is_enforced() -> bool {
     ENFORCE_SERVER_AUTH
 }
 
-pub fn connection_type_for_client(peer: &str, conn_type: crate::client::ConnType) -> String {
+pub fn connection_type_for_client(peer: &str, conn_type: hbb_common::rendezvous_proto::ConnType) -> String {
     if hbb_common::is_ip_str(peer) || hbb_common::is_domain_port_str(peer) {
         return "direct-ip".to_owned();
     }
