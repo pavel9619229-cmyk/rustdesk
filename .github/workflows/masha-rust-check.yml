@@ -1,0 +1,58 @@
+name: Masha Rust Fast Check
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "masha/**"
+      - "udu/**"
+    paths:
+      - "src/masha_session_auth.rs"
+      - "src/client.rs"
+      - "src/server/connection.rs"
+      - "src/lib.rs"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/masha-rust-check.yml"
+  pull_request:
+    paths:
+      - "src/masha_session_auth.rs"
+      - "src/client.rs"
+      - "src/server/connection.rs"
+      - "src/lib.rs"
+      - "Cargo.toml"
+      - "Cargo.lock"
+
+jobs:
+  rust-fast-check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          submodules: recursive
+
+      - name: Install Linux build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang cmake gcc g++ pkg-config nasm \
+            libpam0g-dev libasound2-dev libunwind-dev \
+            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+            libgtk-3-dev libpulse-dev libva-dev libvdpau-dev \
+            libxcb-randr0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+            libxdo-dev libxfixes-dev
+
+      - name: Install Rust 1.75
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
+        with:
+          toolchain: "1.75"
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          prefix-key: masha-rust-fast-check
+
+      - name: Check Masha Rust integration
+        run: cargo check --locked --lib --no-default-features
