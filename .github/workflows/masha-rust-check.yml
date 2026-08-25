@@ -42,7 +42,7 @@ jobs:
             libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
             libgtk-3-dev libpulse-dev libva-dev libvdpau-dev \
             libxcb-randr0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
-            libxdo-dev libxfixes-dev
+            libxdo-dev libxfixes-dev libvpx-dev libaom-dev libyuv-dev
 
       - name: Install Rust 1.75
         uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
@@ -60,7 +60,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          cargo check --locked --lib --no-default-features 2>&1 | tee cargo-check.log
+          cargo check --locked --lib --no-default-features --features linux-pkg-config 2>&1 | tee cargo-check.log
 
       - name: Publish first Rust error
         if: steps.rust_check.outcome == 'failure'
