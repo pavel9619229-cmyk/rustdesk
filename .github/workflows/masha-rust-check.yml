@@ -1,4 +1,4 @@
-name: Masha Rust Fast Check
+﻿name: Masha Rust Fast Check
 
 on:
   workflow_dispatch:
@@ -55,4 +55,24 @@ jobs:
           prefix-key: masha-rust-fast-check
 
       - name: Check Masha Rust integration
-        run: cargo check --locked --lib --no-default-features
+        id: rust_check
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo check --locked --lib --no-default-features 2>&1 | tee cargo-check.log
+
+      - name: Publish first Rust error
+        if: steps.rust_check.outcome == 'failure'
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          text = Path('cargo-check.log').read_text(errors='replace')
+          match = re.search(r'(?ms)^error(?:\[[^\]]+\])?:.*?(?=\n\n|\nwarning:|\nerror(?:\[|:)|\Z)', text)
+          msg = (match.group(0) if match else '\n'.join(text.splitlines()[-40:]))[:6000]
+          msg = msg.replace('%','%25').replace('\r','%0D').replace('\n','%0A')
+          print(f'::error title=Rust compile error::{msg}')
+          raise SystemExit(1)
+          PY
