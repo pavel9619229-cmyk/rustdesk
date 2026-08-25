@@ -470,7 +470,10 @@ impl Connection {
         let salt = Config::get_effective_permanent_password_salt();
         let hash = Hash {
             salt,
-            challenge: Config::get_auto_password(6),
+            challenge: crate::masha_session_auth::make_bound_hash_challenge(
+                &Config::get_auto_password(6),
+                &Config::get_id(),
+            ),
             ..Default::default()
         };
         let (tx_from_cm_holder, mut rx_from_cm) = mpsc::unbounded_channel::<ipc::Data>();
@@ -2540,8 +2543,22 @@ impl Connection {
         if let Some(message::Union::LoginRequest(lr)) = msg.union {
             let direct_ip = crate::common::is_direct_ip_access(&lr.username);
             let masha_ticket_ok = self.masha_ticket_claims.as_ref().map(|c| {
-                crate::masha_session_auth::claims_valid_now(c) && c.operator_id == lr.my_id
-                    && if direct_ip { c.connection_type == "direct-ip" } else { c.target_id == Config::get_id() }
+                let base_ok = crate::masha_session_auth::claims_valid_now(c) && c.operator_id == lr.my_id;
+                if !base_ok {
+                    return false;
+                }
+                if direct_ip {
+                    crate::masha_session_auth::parse_bound_hash_challenge(&self.hash.challenge)
+                        .map(|(target_id, nonce)| {
+                            target_id == Config::get_id()
+                                && c.target_id == target_id
+                                && c.target_nonce.as_deref() == Some(nonce.as_str())
+                                && c.connection_type == "direct-ip"
+                        })
+                        .unwrap_or(false)
+                } else {
+                    c.target_id == Config::get_id()
+                }
             }).unwrap_or(false);
             if !masha_ticket_ok {
                 if crate::masha_session_auth::is_enforced() {

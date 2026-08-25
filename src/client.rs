@@ -277,11 +277,13 @@ impl Client {
             &auth_target,
             conn_type,
         );
+        if !crate::common::is_direct_ip_access(peer) {
         match crate::masha_session_auth::request_ticket(
             &operator_id,
             &auth_target,
             &auth_conn_type,
             crate::VERSION,
+            None,
         )
         .await
         {
@@ -295,6 +297,9 @@ impl Client {
                 }
                 log::warn!("Masha server authorization test-mode failure: {err}");
             }
+        }
+        } else {
+            interface.get_lch().write().unwrap().masha_session_ticket = None;
         }
         // to-do: remember the port for each peer, so that we can retry easier
         if hbb_common::is_ip_str(peer) {
@@ -3522,6 +3527,29 @@ pub async fn handle_hash(
     peer: &mut Stream,
 ) {
     lc.write().unwrap().hash = hash.clone();
+    let direct_ip = {
+        let id = lc.read().unwrap().id.clone();
+        crate::common::is_direct_ip_access(&id)
+    };
+    if direct_ip {
+        lc.write().unwrap().masha_session_ticket = None;
+        if let Some((target_id, nonce)) = crate::masha_session_auth::parse_bound_hash_challenge(&hash.challenge) {
+            let operator_id = Config::get_id();
+            match crate::masha_session_auth::request_ticket(&operator_id, &target_id, "direct-ip", crate::VERSION, Some(&nonce)).await {
+                Ok(ticket) => lc.write().unwrap().masha_session_ticket = Some(ticket),
+                Err(err) => {
+                    log::warn!("Masha Direct IP authorization failed: {err}");
+                    if crate::masha_session_auth::is_enforced() {
+                        interface.msgbox("error", "Connection Error", "Masha server authorization failed", "");
+                        return;
+                    }
+                }
+            }
+        } else if crate::masha_session_auth::is_enforced() {
+            interface.msgbox("error", "Connection Error", "Masha target binding is unavailable", "");
+            return;
+        }
+    }
     // Take care of password application order
 
     // switch_uuid

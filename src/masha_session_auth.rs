@@ -22,6 +22,8 @@ struct AuthorizeRequest {
     target_id: String,
     connection_type: String,
     client_version: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    target_nonce: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -41,6 +43,8 @@ pub struct SessionTicketClaims {
     pub iat: u64,
     pub exp: u64,
     pub jti: String,
+    #[serde(default)]
+    pub target_nonce: Option<String>,
 }
 
 fn now_secs() -> u64 {
@@ -83,6 +87,7 @@ pub async fn request_ticket(
     target_id: &str,
     connection_type: &str,
     client_version: &str,
+    target_nonce: Option<&str>,
 ) -> ResultType<String> {
     let base = auth_base_url();
     if base.is_empty() {
@@ -93,6 +98,7 @@ pub async fn request_ticket(
         target_id: target_id.to_owned(),
         connection_type: connection_type.to_owned(),
         client_version: client_version.to_owned(),
+        target_nonce: target_nonce.map(str::to_owned),
     };    let resp = reqwest::Client::new()
         .post(format!("{base}/v1/session/authorize"))
         .json(&req)
@@ -104,7 +110,10 @@ pub async fn request_ticket(
         bail!(body.reason.unwrap_or_else(|| format!("HTTP {status}")));
     }
     let ticket = body.ticket.ok_or_else(|| anyhow!("Masha Auth returned no ticket"))?;
-    verify_ticket(&ticket, operator_id, target_id)?;
+    let claims = verify_ticket(&ticket, operator_id, target_id)?;
+    if claims.target_nonce.as_deref() != target_nonce {
+        bail!("Masha ticket nonce mismatch");
+    }
     Ok(ticket)
 }
 
@@ -154,6 +163,23 @@ pub fn verify_ticket_unbound(ticket: &str) -> ResultType<SessionTicketClaims> {
         .map_err(|_| anyhow!("invalid Masha ticket payload"))?;
     let claims: SessionTicketClaims = serde_json::from_slice(&payload)?;
     verify_ticket(ticket, &claims.operator_id, &claims.target_id)
+}
+
+const HASH_BINDING_MARKER: &str = "|masha1|";
+
+pub fn make_bound_hash_challenge(base: &str, target_id: &str) -> String {
+    let target = base64::encode(target_id.as_bytes(), base64::Variant::UrlSafeNoPadding);
+    let nonce = uuid::Uuid::new_v4().simple().to_string();
+    format!("{base}{HASH_BINDING_MARKER}{target}|{nonce}")
+}
+
+pub fn parse_bound_hash_challenge(challenge: &str) -> Option<(String, String)> {
+    let (_, meta) = challenge.rsplit_once(HASH_BINDING_MARKER)?;
+    let (target_b64, nonce) = meta.split_once('|')?;
+    if nonce.len() != 32 || !nonce.bytes().all(|b| b.is_ascii_hexdigit()) { return None; }
+    let raw = base64::decode(target_b64, base64::Variant::UrlSafeNoPadding).ok()?;
+    let target = String::from_utf8(raw).ok()?;
+    if target.is_empty() { None } else { Some((target, nonce.to_owned())) }
 }
 
 pub fn claims_valid_now(claims: &SessionTicketClaims) -> bool {
