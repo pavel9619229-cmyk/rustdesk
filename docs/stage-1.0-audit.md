@@ -222,3 +222,6 @@ Experimental fast-CI: `29ab87c7d` + `14b2d3013` + `5101b35d8`; не перено
 Dry-run реального manifest базы `922372ba7` с triplet `x64-windows-static` завершён успешно (exit 0). Прочитаны exact baseline `120deac3062162151622ca4860575a33844ba10b`, project overlay ports `res/vcpkg` и требуемые версии aom/ffmpeg/libjpeg-turbo/libvpx/libyuv/mfx-dispatch/opus.
 
 Установка VS2022 не требуется. Следующий шаг — фактический `vcpkg install` в изолированный каталог `G:\UDU-stage-1.0-tools\vcpkg-installed`.
+Дополнительная проверка исторического `vcpkg.exe` 2025-07-21 из checkout `120deac…` через `vcvars64.bat` всё равно завершилась `Unable to find a valid Visual Studio instance`. Этот tool не совместим с установленным VS18.
+
+Для локальной сборки на текущем `server` используется vcpkg tool, поставляемый с VS18 (`2025-12-16`), но project manifest, overlay ports и registry baseline остаются от базы `922372ba7` (`120deac…`). Это отличие хостового build-tool, а не версий библиотек проекта.
