@@ -194,3 +194,21 @@ Experimental fast-CI: `29ab87c7d` + `14b2d3013` + `5101b35d8`; не перено
 Новая длительная GitHub CI не запускалась.
 
 Блокер требует решения пользователя: разрешить установку/подготовку exact локального build toolchain либо признать успешный exact-SHA Full CI `31682259399` + чистую локальную проверку source/submodule достаточным доказательством воспроизводимости базы для закрытия этапа 1.0.
+
+## 13. Подготовка локального exact build toolchain
+
+Пользователь разрешил установку/подготовку локального build toolchain для проверки `922372ba7`.
+
+Все тяжёлые инструменты размещены на том же устройстве `local-server` в `G:\UDU-stage-1.0-tools`; это не копия проекта. Основной repo и audit-worktree остаются на `C:`.
+
+Подтверждено:
+- Rust standalone `1.75.0` (`rustc 1.75.0`, `cargo 1.75.0`);
+- Flutter `3.24.5`, framework revision `dec2ee5c1f98f8e84a7d5380c05eb8a3d0a81668`, Dart `3.5.4`;
+- Flutter `3.22.3`, framework revision `b0850beeb25f6d5b10426284f506557f66181b36`, Dart `3.4.4`, только для bridge generation;
+- libclang package `15.0.6.1`, DLL `G:\UDU-stage-1.0-tools\python-libclang-15\clang\native\libclang.dll`;
+- NASM `2.16.03`;
+- vcpkg repository exact commit `120deac3062162151622ca4860575a33844ba10b`;
+- vcpkg tool release `2025-07-21-d4b65a2b83ae6c3526acd1c6f3b51aff2a884533`;
+- Visual Studio Build Tools уже были установлены на server: `C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools`, MSVC x64 tools и Windows SDK доступны; встроенные CMake/Ninja обнаружены.
+
+Следующий шаг: установить manifest-зависимости `vcpkg.json` для triplet `x64-windows-static` в каталог на `G:`, затем генерировать exact bridge и выполнять локальную Windows x64 сборку audit-worktree.
