@@ -255,3 +255,45 @@ MSVC загружен через штатный `vcvars64.bat` Visual Studio Bui
 Созданы: `src/bridge_generated.rs`, `src/bridge_generated.io.rs`, `flutter/lib/generated_bridge.dart`, `flutter/lib/generated_bridge.freezed.dart`, `flutter/macos/Runner/bridge_generated.h`, `flutter/ios/Runner/bridge_generated.h`.
 
 SHA256 подтверждены отдельно на сервере. Bridge-файлы являются генерируемыми/игнорируемыми и намеренно не добавляются в Git как исходники. Этот checkpoint фиксирует воспроизводимый результат генерации; следующий шаг этапа 1.0 — локальная Windows x64 сборка базы `922372ba7`.
+
+## 16. Локальная Windows x64 сборка exact-базы завершена
+
+На `local-server` успешно выполнена команда:
+
+`python build.py --portable --flutter --skip-portable-pack --hwcodec --vram`
+
+Перед запуском подтверждено:
+- audit-worktree HEAD точно `922372ba7885fbab7bf4234f89101a58bcd00729`;
+- tracked worktree чистый;
+- все 6 bridge-файлов присутствуют;
+- `flutter/pubspec.lock` восстановлен из exact HEAD после временного bridge workflow под Flutter 3.22.3.
+
+Host-toolchain для Windows build:
+- Rust/Cargo `1.75.0`;
+- Flutter `3.24.5`, Dart `3.5.4`;
+- Visual Studio Build Tools 2026 `18.4.3`, MSVC v180;
+- Windows SDK `10.0.26100.0`;
+- vcpkg dependencies `x64-windows-static` из `G:\UDU-stage-1.0-tools\vcpkg-installed`;
+- custom Windows x64 Flutter engine из rustdesk engine release.
+
+Во время первого локального прогона выявлены и устранены только host-toolchain блокеры, без изменения исходников UDU:
+- PowerShell pipeline запускается с разовым `ExecutionPolicy Bypass`;
+- проверка уже применённого Flutter dropdown patch больше не прерывается на ожидаемом stderr `git apply --check`;
+- в процесс передаётся отсутствовавшая системная переменная `ProgramFiles(x86)`;
+- Flutter 3.24.5 дополнен локальным mapping `VS18 -> Visual Studio 18 2026`, затем `flutter_tools.snapshot` пересобран;
+- ошибочный CMake cache с генератором `Visual Studio 16 2019` удалён и пересоздан.
+
+`flutter doctor -v` после пересборки tool snapshot подтвердил `Visual Studio Build Tools 2026 18.4.3` и Windows SDK `10.0.26100.0`, exit code 0. Rust release exact-базы завершён успешно; повторные Rust-проходы использовали сохранённый cache. Flutter Windows application собран через генератор `Visual Studio 18 2026` за `146.4s`.
+
+Итоговый бинарный комплект:
+- исходный build output: `C:\Users\Server\Documents\UDU-worktrees\stage-1.0-audit\flutter\build\windows\x64\runner\Release`;
+- постоянная копия этапа: `C:\Users\Server\Documents\UDU\artifacts\stage-1.0\windows-x64-922372ba7\Release`;
+- manifest: `C:\Users\Server\Documents\UDU\artifacts\stage-1.0\windows-x64-922372ba7\build-manifest.json`;
+- файлов в комплекте: `94`;
+- общий размер: `77,551,147` bytes;
+- executable: `masha-remote-operator.exe`, `408,064` bytes;
+- PE header: `8664 machine (x64)`;
+- SHA256 executable: `D1A7CE069C1B6747D5FC6404E32BD302CC1D015A97B23FF6E910243C802C275F`;
+- полный build log: `G:\UDU-stage-1.0-tools\windows-x64-build-922372ba7.log`.
+
+Финальный результат pipeline: `BUILD=SUCCESS`. Критерий этапа 1.0 — локальная Windows x64 binary build exact-базы `922372ba7` — выполнен.
