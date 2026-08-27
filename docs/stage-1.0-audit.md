@@ -237,3 +237,21 @@ MSVC загружен через штатный `vcvars64.bat` Visual Studio Bui
 Логи FFmpeg сформированы для release и debug; завершённая установка подтверждается наличием package records в `vcpkg\status` и `x64-windows-static` installed tree.
 
 Следующий шаг этапа 1.0: подготовить bridge в соответствии с workflow базы, применить Flutter 3.24.5 Windows patch/custom engine и выполнить локальную Windows x64 сборку `922372ba7` без изменения исходного audit-worktree.
+## 15. Bridge для базы 922372ba7 завершён
+
+На `local-server` bridge generation для audit-worktree `C:\Users\Server\Documents\UDU-worktrees\stage-1.0-audit` завершён: созданы все 6 из 6 ожидаемых файлов.
+
+Условия генерации:
+- source HEAD: `922372ba7885fbab7bf4234f89101a58bcd00729`;
+- Flutter `3.22.3`, Dart `3.4.4`;
+- `flutter_rust_bridge_codegen 1.80.1`;
+- `cargo-expand 1.0.95`;
+- Rust/Cargo `1.75.0`;
+- `rustfmt` подключён из standalone Rust component `rustfmt-preview`;
+- libclang `15.0.6.1` подключён через `--llvm-path G:\UDU-stage-1.0-tools\llvm-15-local`;
+- Developer Mode Windows включён для symlink support;
+- временный downgrade `extended_text 14.0.0 -> 13.0.0` использован только для bridge workflow и после генерации восстановлен в audit-worktree.
+
+Созданы: `src/bridge_generated.rs`, `src/bridge_generated.io.rs`, `flutter/lib/generated_bridge.dart`, `flutter/lib/generated_bridge.freezed.dart`, `flutter/macos/Runner/bridge_generated.h`, `flutter/ios/Runner/bridge_generated.h`.
+
+SHA256 подтверждены отдельно на сервере. Bridge-файлы являются генерируемыми/игнорируемыми и намеренно не добавляются в Git как исходники. Этот checkpoint фиксирует воспроизводимый результат генерации; следующий шаг этапа 1.0 — локальная Windows x64 сборка базы `922372ba7`.
