@@ -212,3 +212,13 @@ Experimental fast-CI: `29ab87c7d` + `14b2d3013` + `5101b35d8`; не перено
 - Visual Studio Build Tools уже были установлены на server: `C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools`, MSVC x64 tools и Windows SDK доступны; встроенные CMake/Ninja обнаружены.
 
 Следующий шаг: установить manifest-зависимости `vcpkg.json` для triplet `x64-windows-static` в каталог на `G:`, затем генерировать exact bridge и выполнять локальную Windows x64 сборку audit-worktree.
+
+## 14. vcpkg + Visual Studio 18
+
+Повторная диагностика показала, что установленный Visual Studio Build Tools 2026 (VS18) полный: `vswhere` подтверждает `Microsoft.VisualStudio.Component.VC.Tools.x86.x64`, присутствуют `cl.exe`, `vcvars64.bat`, MSBuild и Windows SDK 10.0.26100.0.
+
+Причина первоначального `Unable to find a valid Visual Studio instance` — vcpkg запускался вне Visual Studio Developer Environment. После запуска через `VC\Auxiliary\Build\vcvars64.bat` встроенный vcpkg VS18 определил компилятор `MSVC 14.50.35717`.
+
+Dry-run реального manifest базы `922372ba7` с triplet `x64-windows-static` завершён успешно (exit 0). Прочитаны exact baseline `120deac3062162151622ca4860575a33844ba10b`, project overlay ports `res/vcpkg` и требуемые версии aom/ffmpeg/libjpeg-turbo/libvpx/libyuv/mfx-dispatch/opus.
+
+Установка VS2022 не требуется. Следующий шаг — фактический `vcpkg install` в изолированный каталог `G:\UDU-stage-1.0-tools\vcpkg-installed`.
