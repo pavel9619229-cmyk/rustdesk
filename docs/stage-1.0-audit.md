@@ -225,3 +225,15 @@ Dry-run реального manifest базы `922372ba7` с triplet `x64-windows
 Дополнительная проверка исторического `vcpkg.exe` 2025-07-21 из checkout `120deac…` через `vcvars64.bat` всё равно завершилась `Unable to find a valid Visual Studio instance`. Этот tool не совместим с установленным VS18.
 
 Для локальной сборки на текущем `server` используется vcpkg tool, поставляемый с VS18 (`2025-12-16`), но project manifest, overlay ports и registry baseline остаются от базы `922372ba7` (`120deac…`). Это отличие хостового build-tool, а не версий библиотек проекта.
+## 14. Локальные зависимости Windows x64 готовы
+
+Фактический `vcpkg install` для audit-base `922372ba7` завершён на `local-server`.
+Использован triplet `x64-windows-static`, host triplet также `x64-windows-static`.
+MSVC загружен через штатный `vcvars64.bat` Visual Studio Build Tools 2026.
+Каталог установки зависимостей: `G:\UDU-stage-1.0-tools\vcpkg-installed`.
+Каталог загрузок/кэша: `G:\UDU-stage-1.0-tools\vcpkg-downloads`.
+
+Проверен `vcpkg\status`: установлены требуемые пакеты, включая `ffmpeg`, `aom`, `ffnvcodec`, `libjpeg-turbo`, `libvpx`, `libyuv`, `mfx-dispatch`, `opus`, `amd-amf` и служебные vcpkg packages.
+Логи FFmpeg сформированы для release и debug; завершённая установка подтверждается наличием package records в `vcpkg\status` и `x64-windows-static` installed tree.
+
+Следующий шаг этапа 1.0: подготовить bridge в соответствии с workflow базы, применить Flutter 3.24.5 Windows patch/custom engine и выполнить локальную Windows x64 сборку `922372ba7` без изменения исходного audit-worktree.
