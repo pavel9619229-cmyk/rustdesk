@@ -9,7 +9,7 @@ on:
       - .github/workflows/masha-windows-x64-stage-1.8.yml
 
 permissions:
-  contents: read
+  contents: write
 
 env:
   RUST_VERSION: "1.75"
@@ -158,3 +158,21 @@ jobs:
           path: stage-1.8
           if-no-files-found: error
           retention-days: 14
+
+      - name: Record successful CI receipt
+        shell: pwsh
+        env:
+          CI_RUN_ID: ${{ github.run_id }}
+          CI_RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          $receipt = "docs\ci\stage-1.8-windows-x64-ci.txt"
+          New-Item -ItemType Directory -Force (Split-Path $receipt) | Out-Null
+          Copy-Item "stage-1.8\manifest.txt" $receipt
+          Add-Content $receipt "run_id=$env:CI_RUN_ID"
+          Add-Content $receipt "run_attempt=$env:CI_RUN_ATTEMPT"
+          Add-Content $receipt "workflow=Masha Windows x64 Stage 1.8"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- $receipt
+          git commit -m "ci: record successful stage 1.8 Windows build"
+          git push origin HEAD:masha/server-control-01
