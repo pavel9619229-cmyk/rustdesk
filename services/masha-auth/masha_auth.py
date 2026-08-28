@@ -41,6 +41,13 @@ def init_db():
         c.execute("INSERT OR IGNORE INTO settings VALUES('new_sessions_enabled','true')")
         c.execute("INSERT OR IGNORE INTO settings VALUES('ticket_ttl_seconds',?)",(str(DEFAULT_TTL),))
         c.execute("CREATE TABLE IF NOT EXISTS leases(lease_id TEXT PRIMARY KEY,jti TEXT NOT NULL UNIQUE,token_hash TEXT NOT NULL,operator_id TEXT NOT NULL,target_id TEXT NOT NULL,session_id TEXT NOT NULL,connection_type TEXT NOT NULL,started_at INTEGER NOT NULL,last_heartbeat INTEGER NOT NULL,finished_at INTEGER,finish_reason TEXT NOT NULL DEFAULT '',duration_seconds INTEGER)")
+        c.execute("CREATE TABLE IF NOT EXISTS access_grants(grant_id TEXT PRIMARY KEY,operator_id TEXT NOT NULL,source_type TEXT NOT NULL CHECK(source_type IN ('payment','ad_reward','trial','promo','admin')),grant_kind TEXT NOT NULL CHECK(grant_kind IN ('time_credit','unlimited_period')),quota_seconds INTEGER,starts_at INTEGER NOT NULL,expires_at INTEGER,status TEXT NOT NULL CHECK(status IN ('active','consumed','expired','revoked')),priority INTEGER NOT NULL DEFAULT 100,source_id TEXT,created_at INTEGER NOT NULL)")
+        c.execute('CREATE INDEX IF NOT EXISTS idx_access_grants_operator ON access_grants(operator_id,status,starts_at,expires_at)')
+        c.execute("CREATE TABLE IF NOT EXISTS billing_accounts(operator_id TEXT PRIMARY KEY,billing_status TEXT NOT NULL CHECK(billing_status IN ('current','payment_due','overdue','blocked')),updated_at INTEGER NOT NULL)")
+        now=int(time.time())
+        for row in c.execute("SELECT operator_id,valid_until FROM operators o WHERE access_status='active' AND NOT EXISTS(SELECT 1 FROM access_grants g WHERE g.operator_id=o.operator_id)").fetchall():
+            grant_id='legacy-admin:'+row['operator_id']
+            c.execute("INSERT OR IGNORE INTO access_grants(grant_id,operator_id,source_type,grant_kind,starts_at,expires_at,status,priority,source_id,created_at) VALUES(?,?,?,'unlimited_period',?,?,'active',10,'legacy-operator',?)",(grant_id,row['operator_id'],'admin',now,row['valid_until'],now))
 
 def ensure_key():
     SECRETS.mkdir(parents=True,exist_ok=True)
@@ -66,8 +73,29 @@ def set_setting(key,value):
         c.execute('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',(key,value))
 
 def set_operator(op,status,note='',valid_until=None):
+    now=int(time.time())
     with dbc() as c:
-        c.execute('INSERT INTO operators(operator_id,access_status,note,updated_at,valid_until) VALUES(?,?,?,?,?) ON CONFLICT(operator_id) DO UPDATE SET access_status=excluded.access_status,note=excluded.note,updated_at=excluded.updated_at,valid_until=excluded.valid_until',(op,status,note,int(time.time()),valid_until))
+        c.execute('INSERT INTO operators(operator_id,access_status,note,updated_at,valid_until) VALUES(?,?,?,?,?) ON CONFLICT(operator_id) DO UPDATE SET access_status=excluded.access_status,note=excluded.note,updated_at=excluded.updated_at,valid_until=excluded.valid_until',(op,status,note,now,valid_until))
+        grant_id='legacy-admin:'+op
+        if status=='active':
+            c.execute("INSERT INTO access_grants(grant_id,operator_id,source_type,grant_kind,starts_at,expires_at,status,priority,source_id,created_at) VALUES(?,?,?,'unlimited_period',?,?,'active',10,'legacy-operator',?) ON CONFLICT(grant_id) DO UPDATE SET starts_at=excluded.starts_at,expires_at=excluded.expires_at,status='active'",(grant_id,op,'admin',now,valid_until,now))
+        else:
+            c.execute("UPDATE access_grants SET status='revoked' WHERE grant_id=?",(grant_id,))
+
+def set_grant(operator_id,source_type,grant_kind='unlimited_period',quota_seconds=None,expires_at=None,source_id=None,priority=100):
+    if source_type not in ('payment','ad_reward','trial','promo','admin'): raise ValueError('invalid source_type')
+    if grant_kind not in ('time_credit','unlimited_period'): raise ValueError('invalid grant_kind')
+    if grant_kind=='time_credit' and (quota_seconds is None or int(quota_seconds)<=0): raise ValueError('quota_seconds required')
+    now=int(time.time()); grant_id=secrets.token_urlsafe(18)
+    with dbc() as c:
+        c.execute("INSERT OR IGNORE INTO operators(operator_id,access_status,note,updated_at,valid_until) VALUES(?,'active','created by grant',?,NULL)",(operator_id,now))
+        c.execute("INSERT INTO access_grants(grant_id,operator_id,source_type,grant_kind,quota_seconds,starts_at,expires_at,status,priority,source_id,created_at) VALUES(?,?,?,?,?,?,?,'active',?,?,?)",(grant_id,operator_id,source_type,grant_kind,quota_seconds,now,expires_at,priority,source_id,now))
+    return grant_id
+
+def set_billing(operator_id,status):
+    if status not in ('current','payment_due','overdue','blocked'): raise ValueError('invalid billing status')
+    with dbc() as c:
+        c.execute('INSERT INTO billing_accounts(operator_id,billing_status,updated_at) VALUES(?,?,?) ON CONFLICT(operator_id) DO UPDATE SET billing_status=excluded.billing_status,updated_at=excluded.updated_at',(operator_id,status,int(time.time())))
 
 def authorize(k,req):
     for f in ('operator_id','target_id','session_id','connection_type','client_version'):
@@ -88,19 +116,13 @@ def authorize(k,req):
     with dbc() as c:
         if setting(c,'new_sessions_enabled','true').lower()!='true':
             return False,'new_sessions_disabled',None,None
-        row=c.execute('SELECT access_status,valid_until FROM operators WHERE operator_id=?',(op,)).fetchone()
-        if not row:
-            return False,'operator_unknown',None,None
-        if row['access_status']=='blocked':
-            return False,'operator_blocked',None,None
-        if row['access_status']!='active':
-            return False,'operator_inactive',None,None
-        if row['valid_until'] is not None and int(row['valid_until'])<=now:
-            return False,'operator_expired',None,None
+        grant,reason=entitlement(c,op,now)
+        if reason:
+            return False,reason,None,None
         try: ttl=int(setting(c,'ticket_ttl_seconds',str(DEFAULT_TTL)))
         except ValueError: ttl=DEFAULT_TTL
     ttl=max(30,min(ttl,600)); exp=now+ttl
-    claims={'v':1,'iss':'masha-auth','operator_id':op,'target_id':target,'session_id':session,'connection_type':ctype,'client_version':ver,'iat':now,'exp':exp,'jti':secrets.token_urlsafe(18)}
+    claims={'v':1,'iss':'masha-auth','operator_id':op,'target_id':target,'session_id':session,'connection_type':ctype,'client_version':ver,'grant_id':grant['grant_id'],'grant_source':grant['source_type'],'iat':now,'exp':exp,'jti':secrets.token_urlsafe(18)}
     if nonce:
         claims['target_nonce']=nonce
     payload=json.dumps(claims,sort_keys=True,separators=(',',':')).encode()
@@ -113,13 +135,20 @@ def b64ud(value):
 def token_hash(value):
     return hashlib.sha256(value.encode()).hexdigest()
 
-def operator_reason(c,operator_id,now):
+def entitlement(c,operator_id,now):
     row=c.execute('SELECT access_status,valid_until FROM operators WHERE operator_id=?',(operator_id,)).fetchone()
-    if not row: return 'operator_unknown'
-    if row['access_status']=='blocked': return 'operator_blocked'
-    if row['access_status']!='active': return 'operator_inactive'
-    if row['valid_until'] is not None and int(row['valid_until'])<=now: return 'operator_expired'
-    return None
+    if row and row['access_status']=='blocked': return None,'operator_blocked'
+    c.execute("UPDATE access_grants SET status='expired' WHERE operator_id=? AND status='active' AND expires_at IS NOT NULL AND expires_at<=?",(operator_id,now))
+    grant=c.execute("SELECT grant_id,source_type,grant_kind,quota_seconds,expires_at FROM access_grants WHERE operator_id=? AND status='active' AND starts_at<=? AND (expires_at IS NULL OR expires_at>?) AND (grant_kind='unlimited_period' OR quota_seconds>0) ORDER BY priority,expires_at IS NULL,expires_at,created_at LIMIT 1",(operator_id,now,now)).fetchone()
+    if grant: return grant,None
+    if not row: return None,'operator_unknown'
+    if row['valid_until'] is not None and int(row['valid_until'])<=now: return None,'operator_expired'
+    billing=c.execute('SELECT billing_status FROM billing_accounts WHERE operator_id=?',(operator_id,)).fetchone()
+    if billing and billing['billing_status'] in ('payment_due','overdue','blocked'): return None,'payment_required'
+    return None,'no_active_grant'
+
+def operator_reason(c,operator_id,now):
+    return entitlement(c,operator_id,now)[1]
 
 def finish_stale(c,now):
     c.execute("UPDATE leases SET finished_at=last_heartbeat+?,finish_reason='heartbeat_lost',duration_seconds=(last_heartbeat+?)-started_at WHERE finished_at IS NULL AND last_heartbeat+?<=?",(LEASE_GRACE_SECONDS,LEASE_GRACE_SECONDS,LEASE_GRACE_SECONDS,now))
@@ -248,7 +277,11 @@ def admin(a):
             print('ticket_ttl_seconds='+setting(c,'ticket_ttl_seconds',str(DEFAULT_TTL)))
             for r in c.execute('SELECT operator_id,access_status,note,updated_at,valid_until FROM operators ORDER BY operator_id'):
                 valid_until='' if r['valid_until'] is None else r['valid_until']
-                print(f"{r['operator_id']}\t{r['access_status']}\t{r['note']}\t{r['updated_at']}\t{valid_until}")
+                print(f"operator\t{r['operator_id']}\t{r['access_status']}\t{r['note']}\t{r['updated_at']}\t{valid_until}")
+            for r in c.execute('SELECT grant_id,operator_id,source_type,grant_kind,quota_seconds,expires_at,status FROM access_grants ORDER BY operator_id,created_at'):
+                print(f"grant\t{r['grant_id']}\t{r['operator_id']}\t{r['source_type']}\t{r['grant_kind']}\t{r['quota_seconds']}\t{r['expires_at']}\t{r['status']}")
+            for r in c.execute('SELECT operator_id,billing_status,updated_at FROM billing_accounts ORDER BY operator_id'):
+                print(f"billing\t{r['operator_id']}\t{r['billing_status']}\t{r['updated_at']}")
         print('public_key_b64='+PUB64.read_text().strip())
     elif a.action in ('allow','block','expire'):
         if not a.value: raise SystemExit('operator id required')
@@ -261,8 +294,26 @@ def admin(a):
         print('ok')
     elif a.action=='remove':
         if not a.value: raise SystemExit('operator id required')
-        with dbc() as c: c.execute('DELETE FROM operators WHERE operator_id=?',(a.value,))
+        with dbc() as c:
+            c.execute("UPDATE access_grants SET status='revoked' WHERE operator_id=? AND status='active'",(a.value,))
+            c.execute('DELETE FROM billing_accounts WHERE operator_id=?',(a.value,))
+            c.execute('DELETE FROM operators WHERE operator_id=?',(a.value,))
         print('ok')
+    elif a.action=='grant':
+        if not a.value: raise SystemExit('operator id required')
+        if not a.source: raise SystemExit('--source required')
+        expires_at=parse_valid_until(a.expires_at)
+        grant_id=set_grant(a.value,a.source,a.grant_kind,a.quota_seconds,expires_at,a.source_id,a.priority)
+        print('grant_id='+grant_id)
+    elif a.action=='revoke-grant':
+        if not a.value: raise SystemExit('grant id required')
+        with dbc() as c:
+            changed=c.execute("UPDATE access_grants SET status='revoked' WHERE grant_id=? AND status='active'",(a.value,)).rowcount
+        print('ok' if changed else 'not_active')
+    elif a.action=='billing':
+        if not a.value: raise SystemExit('operator id required')
+        if not a.billing_status: raise SystemExit('--billing-status required')
+        set_billing(a.value,a.billing_status); print('ok')
     elif a.action=='global':
         if a.value not in ('on','off'): raise SystemExit('value must be on/off')
         set_setting('new_sessions_enabled','true' if a.value=='on' else 'false'); print('ok')
@@ -273,7 +324,7 @@ def admin(a):
 
 def main():
     p=argparse.ArgumentParser(); sp=p.add_subparsers(dest='cmd',required=True); sp.add_parser('serve')
-    ap=sp.add_parser('admin'); ap.add_argument('action',choices=['status','allow','block','expire','remove','global','ttl']); ap.add_argument('value',nargs='?'); ap.add_argument('--note',default=''); ap.add_argument('--valid-until')
+    ap=sp.add_parser('admin'); ap.add_argument('action',choices=['status','allow','block','expire','remove','grant','revoke-grant','billing','global','ttl']); ap.add_argument('value',nargs='?'); ap.add_argument('--note',default=''); ap.add_argument('--valid-until'); ap.add_argument('--source',choices=['payment','ad_reward','trial','promo','admin']); ap.add_argument('--grant-kind',choices=['time_credit','unlimited_period'],default='unlimited_period'); ap.add_argument('--quota-seconds',type=int); ap.add_argument('--expires-at'); ap.add_argument('--source-id'); ap.add_argument('--priority',type=int,default=100); ap.add_argument('--billing-status',choices=['current','payment_due','overdue','blocked'])
     a=p.parse_args(); serve() if a.cmd=='serve' else admin(a)
 
 if __name__=='__main__': main()

@@ -101,6 +101,69 @@ class AuthorizeTests(unittest.TestCase):
         payload = decode_base64url(allowed[2].split('.')[0])
         self.assertEqual(json.loads(payload)['target_nonce'], 'nonce-01')
 
+    def test_each_grant_source_can_authorize(self):
+        for source in ('payment', 'ad_reward', 'trial', 'promo', 'admin'):
+            operator_id = 'grant-' + source
+            self.auth.set_operator(operator_id, 'active')
+            with self.auth.dbc() as connection:
+                connection.execute("UPDATE access_grants SET status='revoked' WHERE operator_id=?", (operator_id,))
+            grant_id = self.auth.set_grant(operator_id, source, expires_at=int(time.time()) + 60)
+            result = self.request(operator_id, session_id='session-' + source)
+            self.assertTrue(result[0], source)
+            claims = json.loads(decode_base64url(result[2].split('.')[0]))
+            self.assertEqual(claims['grant_id'], grant_id)
+            self.assertEqual(claims['grant_source'], source)
+
+    def test_repeated_init_does_not_shadow_new_grant(self):
+        operator_id = 'grant-migration-regression'
+        grant_id = self.auth.set_grant(operator_id, 'promo', expires_at=int(time.time()) + 60)
+        self.auth.init_db()
+        result = self.request(operator_id)
+        claims = json.loads(decode_base64url(result[2].split('.')[0]))
+        self.assertEqual(claims['grant_id'], grant_id)
+        self.assertEqual(claims['grant_source'], 'promo')
+
+    def test_overdue_payment_does_not_block_alternative_grants(self):
+        for source in ('ad_reward', 'trial', 'promo', 'admin'):
+            operator_id = 'overdue-' + source
+            self.auth.set_operator(operator_id, 'active')
+            with self.auth.dbc() as connection:
+                connection.execute("UPDATE access_grants SET status='revoked' WHERE operator_id=?", (operator_id,))
+            self.auth.set_billing(operator_id, 'overdue')
+            self.auth.set_grant(operator_id, source, expires_at=int(time.time()) + 60)
+            self.assertTrue(self.request(operator_id, session_id='session-' + source)[0])
+
+    def test_overdue_without_active_grant_is_denied(self):
+        operator_id = 'overdue-no-grant'
+        self.auth.set_operator(operator_id, 'active')
+        with self.auth.dbc() as connection:
+            connection.execute("UPDATE access_grants SET status='revoked' WHERE operator_id=?", (operator_id,))
+        self.auth.set_billing(operator_id, 'overdue')
+        self.assertEqual(self.request(operator_id)[:2], (False, 'payment_required'))
+
+    def test_expired_and_revoked_grants_are_denied(self):
+        operator_id = 'inactive-grants'
+        self.auth.set_operator(operator_id, 'active')
+        with self.auth.dbc() as connection:
+            connection.execute("UPDATE access_grants SET status='revoked' WHERE operator_id=?", (operator_id,))
+        expired = self.auth.set_grant(operator_id, 'promo', expires_at=int(time.time()) - 1)
+        revoked = self.auth.set_grant(operator_id, 'admin')
+        with self.auth.dbc() as connection:
+            connection.execute("UPDATE access_grants SET status='revoked' WHERE grant_id=?", (revoked,))
+        self.assertEqual(self.request(operator_id)[:2], (False, 'no_active_grant'))
+        with self.auth.dbc() as connection:
+            self.assertEqual(connection.execute('SELECT status FROM access_grants WHERE grant_id=?', (expired,)).fetchone()['status'], 'expired')
+
+    def test_grant_revoke_stops_active_lease(self):
+        lease = self.start_lease('lease-grant-revoke')
+        with self.auth.dbc() as connection:
+            connection.execute("UPDATE access_grants SET status='revoked' WHERE operator_id=?", ('lease-grant-revoke',))
+        result = self.auth.lease_action({
+            'lease_id': lease['lease_id'],
+            'lease_token': lease['lease_token'],
+        })
+        self.assertEqual(result[:2], (False, 'no_active_grant'))
+
     def test_lease_heartbeat_renews_active_session(self):
         lease = self.start_lease('lease-active-operator')
         result = self.auth.lease_action({

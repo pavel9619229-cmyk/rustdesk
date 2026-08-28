@@ -1,4 +1,4 @@
-# Masha Auth — этапы 1.1–1.4
+# Masha Auth — этапы 1.1–1.5
 
 Production-совместимый Python-сервис авторизации сеанса:
 
@@ -53,6 +53,19 @@ Heartbeat отправляется каждые 10 секунд. Grace period п
 в `heartbeat_lost`. Сервер сохраняет `started_at`, `finished_at`,
 причину завершения и `duration_seconds`. Повторный finish идемпотентен.
 
+## Entitlement Engine (этап 1.5)
+
+Authorize и каждый heartbeat используют единый расчёт действующего права.
+Поддерживаются источники `payment`, `ad_reward`, `trial`, `promo`, `admin`
+и виды grant `unlimited_period`, `time_credit`. Истёкшие и отозванные grant
+не дают доступ. Статус оплаты `payment_due`, `overdue` или `blocked` приводит
+к `payment_required` только когда нет другого действующего grant. Поэтому
+действующий ad reward, trial, promo или admin grant не блокируется долгом.
+
+Выбранные `grant_id` и `grant_source` подписываются внутри session ticket.
+Отзыв последнего действующего grant прекращает активный lease на следующем
+heartbeat. Списание `time_credit` выполняется на этапе 1.6.
+
 ## Управление операторами
 
 На VPS из каталога `/opt/masha-auth`:
@@ -64,6 +77,10 @@ python3 masha_auth.py admin allow OPERATOR_ID --valid-until 2026-12-31T23:59:59Z
 python3 masha_auth.py admin block OPERATOR_ID
 python3 masha_auth.py admin expire OPERATOR_ID
 python3 masha_auth.py admin remove OPERATOR_ID
+python3 masha_auth.py admin grant OPERATOR_ID --source promo --expires-at 2026-12-31T23:59:59Z
+python3 masha_auth.py admin grant OPERATOR_ID --source ad_reward --grant-kind time_credit --quota-seconds 1800
+python3 masha_auth.py admin revoke-grant GRANT_ID
+python3 masha_auth.py admin billing OPERATOR_ID --billing-status overdue
 ```
 
 `allow` без `--valid-until` создаёт бессрочное право. Значение
