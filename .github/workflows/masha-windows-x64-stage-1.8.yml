@@ -1,0 +1,160 @@
+name: Masha Windows x64 Stage 1.8
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - masha/server-control-01
+    paths:
+      - .github/workflows/masha-windows-x64-stage-1.8.yml
+
+permissions:
+  contents: read
+
+env:
+  RUST_VERSION: "1.75"
+  FLUTTER_VERSION: "3.24.5"
+  LLVM_VERSION: "15.0.6"
+  VCPKG_COMMIT_ID: "120deac3062162151622ca4860575a33844ba10b"
+  VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
+
+jobs:
+  generate-bridge:
+    uses: ./.github/workflows/bridge.yml
+
+  windows-x64:
+    name: Windows x64
+    needs: generate-bridge
+    runs-on: windows-2022
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Restore generated bridge files
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bridge-artifact
+          path: ./
+
+      - name: Verify stage 1.7 checkpoint
+        shell: pwsh
+        run: |
+          $expected = "704399fe235e4ef929a717a8cfcea9f724b6a24d"
+          git merge-base --is-ancestor $expected HEAD
+          if ($LASTEXITCODE -ne 0) {
+            throw "Stage 1.7 checkpoint is not an ancestor of $env:GITHUB_SHA"
+          }
+          "SOURCE_SHA=$env:GITHUB_SHA" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Install LLVM and Clang
+        uses: KyleMayes/install-llvm-action@ebc0426251bc40c7cd31162802432c68818ab8f0 # v2.0.9
+        with:
+          version: ${{ env.LLVM_VERSION }}
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@2783a3f08e1baf891508463f8c6653c258246225 # v2.12.0
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          architecture: x64
+
+      - name: Install custom Flutter Windows engine
+        shell: pwsh
+        run: |
+          flutter doctor -v
+          flutter precache --windows
+          Invoke-WebRequest -Uri https://github.com/rustdesk/engine/releases/download/main/windows-x64-release.zip -OutFile engine.zip
+          Expand-Archive engine.zip -DestinationPath engine
+          $flutterRoot = Split-Path (Split-Path (Get-Command flutter).Source)
+          Copy-Item -Force -Recurse engine\* "$flutterRoot\bin\cache\artifacts\engine\windows-x64-release\"
+      - name: Patch Flutter 3.24.5
+        shell: bash
+        run: |
+          flutter_root="$(dirname "$(dirname "$(which flutter)")")"
+          cp .github/patches/flutter_3.24.4_dropdown_menu_enableFilter.diff "$flutter_root/"
+          cd "$flutter_root"
+          git apply flutter_3.24.4_dropdown_menu_enableFilter.diff
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          targets: x86_64-pc-windows-msvc
+          components: rustfmt
+
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          prefix-key: stage-1.8-windows-x64
+
+      - name: Set up vcpkg
+        uses: lukka/run-vcpkg@b1a0dd252f06b9e25b3c022a9a03bd7a427fb6a2 # v11
+        with:
+          vcpkgDirectory: C:\vcpkg
+          vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
+          doNotCache: false
+
+      - name: Install vcpkg dependencies
+        shell: bash
+        env:
+          VCPKG_DEFAULT_HOST_TRIPLET: x64-windows-static
+        run: |
+          "$VCPKG_ROOT/vcpkg" install --triplet x64-windows-static --x-install-root="$VCPKG_ROOT/installed"
+
+      - name: Verify committed bridge files
+        shell: pwsh
+        run: |
+          $files = @(
+            "src\bridge_generated.rs",
+            "src\bridge_generated.io.rs",
+            "flutter\lib\generated_bridge.dart",
+            "flutter\lib\generated_bridge.freezed.dart",
+            "flutter\ios\Runner\bridge_generated.h",
+            "flutter\macos\Runner\bridge_generated.h"
+          )
+          $missing = $files | Where-Object { -not (Test-Path $_) }
+          if ($missing) { throw "Missing bridge files: $missing" }
+
+      - name: Run Masha auth service tests
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check cryptography
+          python -m unittest discover -s services/masha-auth/test -p "test_*.py" -v
+
+      - name: Build Windows x64 Release
+        shell: pwsh
+        env:
+          VCPKG_DEFAULT_HOST_TRIPLET: x64-windows-static
+        run: |
+          python .\build.py --portable --flutter --skip-portable-pack --hwcodec --vram
+      - name: Verify and package Release
+        id: package
+        shell: pwsh
+        run: |
+          $release = "flutter\build\windows\x64\runner\Release"
+          $exe = Join-Path $release "masha-remote-operator.exe"
+          if (-not (Test-Path $exe)) { throw "Executable not found: $exe" }
+          $bytes = [IO.File]::ReadAllBytes($exe)
+          $pe = [BitConverter]::ToInt32($bytes, 0x3c)
+          $machine = [BitConverter]::ToUInt16($bytes, $pe + 4)
+          if ($machine -ne 0x8664) { throw ("Unexpected PE machine: 0x{0:X4}" -f $machine) }
+          $out = "stage-1.8"
+          New-Item -ItemType Directory -Force $out | Out-Null
+          $zip = Join-Path $out "masha-remote-operator-stage-1.8-windows-x64.zip"
+          Compress-Archive -Path "$release\*" -DestinationPath $zip -CompressionLevel Optimal
+          $hash = (Get-FileHash $zip -Algorithm SHA256).Hash
+          $count = (Get-ChildItem $release -File -Recurse).Count
+          @("source_sha=$env:GITHUB_SHA","pe_machine=8664","files=$count","zip_sha256=$hash") |
+            Set-Content (Join-Path $out "manifest.txt") -Encoding utf8
+          Get-Content (Join-Path $out "manifest.txt")
+
+      - name: Upload Windows x64 artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: masha-stage-1.8-windows-x64
+          path: stage-1.8
+          if-no-files-found: error
+          retention-days: 14
