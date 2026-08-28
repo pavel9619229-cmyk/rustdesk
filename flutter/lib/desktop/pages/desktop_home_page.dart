@@ -12,9 +12,6 @@ import 'package:flutter_hbb/consts.dart';
 import 'package:flutter_hbb/desktop/pages/connection_page.dart';
 import 'package:flutter_hbb/desktop/pages/desktop_setting_page.dart';
 import 'package:flutter_hbb/desktop/pages/desktop_tab_page.dart';
-import 'package:flutter_hbb/desktop/pages/masha_connect_page.dart';
-import 'package:flutter_hbb/desktop/pages/masha_allow_page.dart';
-import 'package:flutter/material.dart' as material;
 import 'package:flutter_hbb/desktop/widgets/update_progress.dart';
 import 'package:flutter_hbb/models/platform_model.dart';
 import 'package:flutter_hbb/models/server_model.dart';
@@ -135,7 +132,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       value: gFFI.serverModel,
       child: Container(
         width: isIncomingOnly ? 280.0 : 200.0,
-        color: Theme.of(context).colorScheme.surface,
+        color: Theme.of(context).colorScheme.background,
         child: Stack(
           children: [
             Column(
@@ -225,8 +222,6 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                                   ?.color
                                   ?.withOpacity(0.5)),
                         ).marginOnly(top: 5),
-                        // TEMP: visual check of Masha mockup screens, remove after review.
-                        buildMashaPreviewButton(context),
                         buildPopupMenu(context)
                       ],
                     ),
@@ -260,44 +255,6 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     );
   }
 
-  // TEMP: opens the new Masha mockup screens in an isolated dialog for visual review.
-  Widget buildMashaPreviewButton(BuildContext context) {
-    return InkWell(
-      onTap: () => showDialog(
-        context: context,
-        builder: (_) => material.Dialog(
-          insetPadding: const EdgeInsets.all(24),
-          child: SizedBox(
-            width: 480,
-            height: 620,
-            child: DefaultTabController(
-              length: 2,
-              child: Column(
-                children: [
-                  const TabBar(tabs: [
-                    Tab(text: 'Подключиться'),
-                    Tab(text: 'Разрешить'),
-                  ]),
-                  const Expanded(
-                    child: TabBarView(children: [
-                      MashaConnectPage(),
-                      MashaAllowPage(),
-                    ]),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-      child: Tooltip(
-        message: 'Masha preview (temp)',
-        child: Icon(Icons.preview,
-            size: 20, color: Theme.of(context).textTheme.titleLarge?.color),
-      ),
-    );
-  }
-
   Widget buildPopupMenu(BuildContext context) {
     final textColor = Theme.of(context).textTheme.titleLarge?.color;
     RxBool hover = false.obs;
@@ -310,7 +267,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             radius: 15,
             backgroundColor: hover.value
                 ? Theme.of(context).scaffoldBackgroundColor
-                : Theme.of(context).colorScheme.surface,
+                : Theme.of(context).colorScheme.background,
             child: Icon(
               Icons.more_vert_outlined,
               size: 20,
@@ -1148,7 +1105,7 @@ void setPasswordDialog({VoidCallback? notEmptyCallback}) async {
             close();
           },
           buttonStyle: ButtonStyle(
-              backgroundColor: WidgetStatePropertyAll(Colors.red)),
+              backgroundColor: MaterialStatePropertyAll(Colors.red)),
         );
         final okButton = dialogButton(
           "OK",

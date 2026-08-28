@@ -359,19 +359,19 @@ class _ToolbarTheme {
       MyTheme.color(context).divider;
 
   static MenuStyle defaultMenuStyle(BuildContext context) => MenuStyle(
-        side: WidgetStateProperty.all(BorderSide(
+        side: MaterialStateProperty.all(BorderSide(
           width: 1,
           color: borderColor(context),
         )),
-        shape: WidgetStatePropertyAll(RoundedRectangleBorder(
+        shape: MaterialStatePropertyAll(RoundedRectangleBorder(
             borderRadius:
                 BorderRadius.circular(_ToolbarTheme.menuBorderRadius))),
-        padding: WidgetStateProperty.all(_ToolbarTheme.menuPadding),
+        padding: MaterialStateProperty.all(_ToolbarTheme.menuPadding),
       );
   static final defaultMenuButtonStyle = ButtonStyle(
-    backgroundColor: WidgetStatePropertyAll(Colors.transparent),
-    padding: WidgetStatePropertyAll(EdgeInsets.zero),
-    overlayColor: WidgetStatePropertyAll(Colors.transparent),
+    backgroundColor: MaterialStatePropertyAll(Colors.transparent),
+    padding: MaterialStatePropertyAll(EdgeInsets.zero),
+    overlayColor: MaterialStatePropertyAll(Colors.transparent),
   );
 
   static Widget borderWrapper(
@@ -871,7 +871,7 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
           .menuBarTheme
           .style
           ?.backgroundColor
-          ?.resolve(WidgetState.values.toSet()),
+          ?.resolve(MaterialState.values.toSet()),
       child: SingleChildScrollView(
         scrollDirection: innerAxis,
         child: Theme(
@@ -909,11 +909,11 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
     return Theme.of(context).copyWith(
       menuButtonTheme: MenuButtonThemeData(
         style: ButtonStyle(
-          minimumSize: WidgetStatePropertyAll(Size(64, 32)),
-          textStyle: WidgetStatePropertyAll(
+          minimumSize: MaterialStatePropertyAll(Size(64, 32)),
+          textStyle: MaterialStatePropertyAll(
             TextStyle(fontWeight: FontWeight.normal),
           ),
-          shape: WidgetStatePropertyAll(RoundedRectangleBorder(
+          shape: MaterialStatePropertyAll(RoundedRectangleBorder(
               borderRadius:
                   BorderRadius.circular(_ToolbarTheme.menuButtonBorderRadius))),
         ),
@@ -924,9 +924,9 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
       ),
       menuBarTheme: MenuBarThemeData(
           style: MenuStyle(
-        padding: WidgetStatePropertyAll(EdgeInsets.zero),
-        elevation: WidgetStatePropertyAll(0),
-        shape: WidgetStatePropertyAll(BeveledRectangleBorder()),
+        padding: MaterialStatePropertyAll(EdgeInsets.zero),
+        elevation: MaterialStatePropertyAll(0),
+        shape: MaterialStatePropertyAll(BeveledRectangleBorder()),
       ).copyWith(
               backgroundColor:
                   Theme.of(context).menuBarTheme.style?.backgroundColor)),
@@ -1104,7 +1104,7 @@ class _MonitorMenu extends StatelessWidget {
         hoverColor: _ToolbarTheme.hoverBlueColor,
         menuStyle: MenuStyle(
             padding:
-                WidgetStatePropertyAll(EdgeInsets.symmetric(horizontal: 6))),
+                MaterialStatePropertyAll(EdgeInsets.symmetric(horizontal: 6))),
         menuChildrenGetter: (_) => [buildMonitorSubmenuWidget(context)]);
   }
 
@@ -2829,9 +2829,9 @@ class _IconMenuButtonState extends State<_IconMenuButton> {
       height: _ToolbarTheme.buttonSize,
       child: MenuItemButton(
           style: ButtonStyle(
-              backgroundColor: WidgetStatePropertyAll(Colors.transparent),
-              padding: WidgetStatePropertyAll(EdgeInsets.zero),
-              overlayColor: WidgetStatePropertyAll(Colors.transparent)),
+              backgroundColor: MaterialStatePropertyAll(Colors.transparent),
+              padding: MaterialStatePropertyAll(EdgeInsets.zero),
+              overlayColor: MaterialStatePropertyAll(Colors.transparent)),
           onHover: (value) => setState(() {
                 hover = value;
               }),
@@ -3317,8 +3317,8 @@ class _DraggableShowHideState extends State<_DraggableShowHide> {
   @override
   Widget build(BuildContext context) {
     final ButtonStyle buttonStyle = ButtonStyle(
-      minimumSize: WidgetStateProperty.all(const Size(0, 0)),
-      padding: WidgetStateProperty.all(EdgeInsets.zero),
+      minimumSize: MaterialStateProperty.all(const Size(0, 0)),
+      padding: MaterialStateProperty.all(EdgeInsets.zero),
     );
     final isFullscreen = stateGlobal.fullscreen;
     const double iconSize = 20;
@@ -3330,8 +3330,8 @@ class _DraggableShowHideState extends State<_DraggableShowHide> {
         onPressed: onPressed,
         child: child,
         style: buttonStyle.copyWith(
-          backgroundColor: WidgetStateProperty.resolveWith((states) {
-            if (states.contains(WidgetState.hovered)) {
+          backgroundColor: MaterialStateProperty.resolveWith((states) {
+            if (states.contains(MaterialState.hovered)) {
               return (bgColor ?? hoverColor).withOpacity(0.15);
             }
             return bgColor;
@@ -3420,7 +3420,7 @@ class _DraggableShowHideState extends State<_DraggableShowHide> {
               .menuBarTheme
               .style
               ?.backgroundColor
-              ?.resolve(WidgetState.values.toSet()),
+              ?.resolve(MaterialState.values.toSet()),
           border: Border.all(
             color: _ToolbarTheme.borderColor(context),
             width: 1,
@@ -3544,10 +3544,10 @@ class _MinimizedMonitorSwitchButton extends StatelessWidget {
         child: TextButton(
           onPressed: cycle.next,
           style: ButtonStyle(
-            minimumSize: WidgetStateProperty.all(const Size(0, 0)),
-            padding: WidgetStateProperty.all(EdgeInsets.zero),
-            backgroundColor: WidgetStateProperty.resolveWith((states) {
-              if (states.contains(WidgetState.hovered)) {
+            minimumSize: MaterialStateProperty.all(const Size(0, 0)),
+            padding: MaterialStateProperty.all(EdgeInsets.zero),
+            backgroundColor: MaterialStateProperty.resolveWith((states) {
+              if (states.contains(MaterialState.hovered)) {
                 return _ToolbarTheme.blueColor.withOpacity(0.15);
               }
               return null;

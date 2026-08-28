@@ -1243,7 +1243,7 @@ class LegacyAb extends BaseAb {
         tags.add(e);
       }
       if (tagColors[e] == null) {
-        tagColors[e] = str2color2(e, existing: tagColors.values.toList()).toARGB32();
+        tagColors[e] = str2color2(e, existing: tagColors.values.toList()).value;
       }
     }
     return await pushAb();
@@ -1283,7 +1283,7 @@ class LegacyAb extends BaseAb {
   @override
   Future<bool> setTagColor(String tag, Color color) async {
     if (tags.contains(tag)) {
-      tagColors[tag] = color.toARGB32();
+      tagColors[tag] = color.value;
     }
     return await pushAb();
   }
@@ -1311,7 +1311,7 @@ class LegacyAb extends BaseAb {
         peers.map((e) => e.toCustomJson(includingHash: true)).toList();
     for (var e in tags) {
       if (tagColors[e] == null) {
-        tagColors[e] = str2color2(e, existing: tagColors.values.toList()).toARGB32();
+        tagColors[e] = str2color2(e, existing: tagColors.values.toList()).value;
       }
     }
     final tagColorJsonData = jsonEncode(tagColors);
@@ -1352,7 +1352,7 @@ class LegacyAb extends BaseAb {
     final tagsWithoutColor =
         tags.toList().where((e) => !tagColors.containsKey(e)).toList();
     for (var t in tagsWithoutColor) {
-      tagColors[t] = str2color2(t, existing: tagColors.values.toList()).toARGB32();
+      tagColors[t] = str2color2(t, existing: tagColors.values.toList()).value;
     }
   }
 }
@@ -1784,7 +1784,7 @@ class Ab extends BaseAb {
         final body = jsonEncode({
           "name": t,
           "color": tagColorMap[t] ??
-              str2color2(t, existing: tagColors.values.toList()).toARGB32(),
+              str2color2(t, existing: tagColors.values.toList()).value,
         });
         final resp =
             await http.post(Uri.parse(api), headers: headers, body: body);
@@ -1839,7 +1839,7 @@ class Ab extends BaseAb {
       headers['Content-Type'] = "application/json";
       final body = jsonEncode({
         "name": tag,
-        "color": color.toARGB32(),
+        "color": color.value,
       });
       final resp = await http.put(Uri.parse(api), headers: headers, body: body);
       final errMsg = _jsonDecodeActionResp(resp);

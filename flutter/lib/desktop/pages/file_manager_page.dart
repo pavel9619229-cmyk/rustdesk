@@ -837,11 +837,11 @@ class _FileManagerViewState extends State<FileManagerView> {
               if (isWeb)
                 Obx(() => ElevatedButton.icon(
                       style: ButtonStyle(
-                        padding: WidgetStateProperty.all<EdgeInsetsGeometry>(
+                        padding: MaterialStateProperty.all<EdgeInsetsGeometry>(
                             isLocal
                                 ? EdgeInsets.only(left: 10)
                                 : EdgeInsets.only(right: 10)),
-                        backgroundColor: WidgetStateProperty.all(
+                        backgroundColor: MaterialStateProperty.all(
                           selectedItems.items.isEmpty
                               ? MyTheme.accent80
                               : MyTheme.accent,
@@ -896,11 +896,11 @@ class _FileManagerViewState extends State<FileManagerView> {
                     )).marginOnly(left: 16),
               Obx(() => ElevatedButton.icon(
                     style: ButtonStyle(
-                      padding: WidgetStateProperty.all<EdgeInsetsGeometry>(
+                      padding: MaterialStateProperty.all<EdgeInsetsGeometry>(
                           isLocal
                               ? EdgeInsets.only(left: 10)
                               : EdgeInsets.only(right: 10)),
-                      backgroundColor: WidgetStateProperty.all(
+                      backgroundColor: MaterialStateProperty.all(
                         selectedItems.items.isEmpty
                             ? MyTheme.accent80
                             : MyTheme.accent,
@@ -1605,7 +1605,7 @@ class _FileManagerViewState extends State<FileManagerView> {
           content: TextButton(
                   child: buildWindowsThisPC(context),
                   style: ButtonStyle(
-                      minimumSize: WidgetStateProperty.all(Size(0, 0))),
+                      minimumSize: MaterialStateProperty.all(Size(0, 0))),
                   onPressed: () => onPressed(['/']))
               .marginSymmetric(horizontal: 4)));
     } else {
@@ -1616,7 +1616,7 @@ class _FileManagerViewState extends State<FileManagerView> {
                 content: TextButton(
                   child: Text(e.value),
                   style: ButtonStyle(
-                    minimumSize: WidgetStateProperty.all(
+                    minimumSize: MaterialStateProperty.all(
                       Size(0, 0),
                     ),
                   ),

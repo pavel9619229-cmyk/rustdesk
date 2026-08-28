@@ -1,4 +1,5 @@
 import 'dart:js' as js;
+import 'dart:html' as html;
 // cycle imports, maybe we can improve this
 import 'package:flutter_hbb/consts.dart';
 

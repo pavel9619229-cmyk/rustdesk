@@ -600,7 +600,7 @@ class _PermissionCheckerState extends State<PermissionChecker> {
               ? ElevatedButton.icon(
                       style: ButtonStyle(
                           backgroundColor:
-                              WidgetStateProperty.all(Colors.red)),
+                              MaterialStateProperty.all(Colors.red)),
                       icon: const Icon(Icons.stop),
                       onPressed: serverModel.toggleService,
                       label: Text(translate("Stop service")))
@@ -727,7 +727,7 @@ class ConnectionManager extends StatelessWidget {
 
   Widget _buildDisconnectButton(Client client) {
     final disconnectButton = ElevatedButton.icon(
-      style: ButtonStyle(backgroundColor: WidgetStatePropertyAll(Colors.red)),
+      style: ButtonStyle(backgroundColor: MaterialStatePropertyAll(Colors.red)),
       icon: const Icon(Icons.close),
       onPressed: () {
         bind.cmCloseConnection(connId: client.id);
@@ -741,7 +741,7 @@ class ConnectionManager extends StatelessWidget {
         0,
         ElevatedButton.icon(
           style: ButtonStyle(
-              backgroundColor: WidgetStatePropertyAll(Colors.red)),
+              backgroundColor: MaterialStatePropertyAll(Colors.red)),
           icon: const Icon(Icons.phone),
           label: Text(translate("Stop")),
           onPressed: () {

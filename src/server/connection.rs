@@ -316,7 +316,6 @@ pub struct Connection {
     port_forward_address: String,
     tx_to_cm: mpsc::UnboundedSender<ipc::Data>,
     authorized: bool,
-    masha_ticket_claims: Option<crate::masha_session_auth::SessionTicketClaims>,
     require_2fa: Option<totp_rs::TOTP>,
     keyboard: bool,
     clipboard: bool,
@@ -470,10 +469,7 @@ impl Connection {
         let salt = Config::get_effective_permanent_password_salt();
         let hash = Hash {
             salt,
-            challenge: crate::masha_session_auth::make_bound_hash_challenge(
-                &Config::get_auto_password(6),
-                &Config::get_id(),
-            ),
+            challenge: Config::get_auto_password(6),
             ..Default::default()
         };
         let (tx_from_cm_holder, mut rx_from_cm) = mpsc::unbounded_channel::<ipc::Data>();
@@ -521,7 +517,6 @@ impl Connection {
             port_forward_address: "".to_owned(),
             tx_to_cm,
             authorized: false,
-            masha_ticket_claims: None,
             keyboard: Self::permission(keys::OPTION_ENABLE_KEYBOARD, &control_permissions),
             clipboard: Self::permission(keys::OPTION_ENABLE_CLIPBOARD, &control_permissions),
             audio: Self::permission(keys::OPTION_ENABLE_AUDIO, &control_permissions),
@@ -2518,19 +2513,6 @@ impl Connection {
                 return false;
             }
         }
-        if let Some(message::Union::MessageBox(mb)) = &msg.union {
-            if mb.msgtype == crate::masha_session_auth::TICKET_MESSAGE_TYPE {
-                match crate::masha_session_auth::verify_ticket_unbound(&mb.text) {
-                    Ok(claims) => self.masha_ticket_claims = Some(claims),
-                    Err(err) => {
-                        self.masha_ticket_claims = None;
-                        log::warn!("Invalid Masha session ticket: {}", err);
-                    }
-                }
-                return true;
-            }
-        }
-
         if self.authorized {
             if matches!(msg.union.as_ref(), Some(message::Union::LoginRequest(_))) {
                 return true;
@@ -2541,32 +2523,6 @@ impl Connection {
         }
         // After handling CloseReason messages, proceed to process other message types
         if let Some(message::Union::LoginRequest(lr)) = msg.union {
-            let direct_ip = crate::common::is_direct_ip_access(&lr.username);
-            let masha_ticket_ok = self.masha_ticket_claims.as_ref().map(|c| {
-                let base_ok = crate::masha_session_auth::claims_valid_now(c) && c.operator_id == lr.my_id;
-                if !base_ok {
-                    return false;
-                }
-                if direct_ip {
-                    crate::masha_session_auth::parse_bound_hash_challenge(&self.hash.challenge)
-                        .map(|(target_id, nonce)| {
-                            target_id == Config::get_id()
-                                && c.target_id == target_id
-                                && c.target_nonce.as_deref() == Some(nonce.as_str())
-                                && c.connection_type == "direct-ip"
-                        })
-                        .unwrap_or(false)
-                } else {
-                    c.target_id == Config::get_id()
-                }
-            }).unwrap_or(false);
-            if !masha_ticket_ok {
-                if crate::masha_session_auth::is_enforced() {
-                    self.send_login_error("Masha server authorization required").await;
-                    return false;
-                }
-                log::warn!("Masha session authorization missing or invalid (test mode)");
-            }
             self.handle_login_request_without_validation(&lr).await;
             if self.authorized {
                 return true;
