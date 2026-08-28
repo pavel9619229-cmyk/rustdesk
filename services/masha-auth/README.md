@@ -1,28 +1,22 @@
 # Masha Auth — этап 1.1
 
-Минимальный серверный endpoint авторизации сеанса:
+Production-совместимый Python-сервис авторизации сеанса:
 
 `POST /v1/session/authorize`
 
-Сервис выдаёт короткоживущий Ed25519-signed ticket только оператору
-со статусом `active`. Статусы перечитываются из JSON перед каждым
-решением, поэтому блокировка применяется без перезапуска сервиса.
+Сервис работает на VPS UDU, использует SQLite и подписывает короткоживущие
+ticket ключом Ed25519. Приватный ключ, база и TLS-файлы не хранятся в Git.
 
-## Граница этапа
+## Критерий 1.1
 
-В 1.1 входят endpoint, серверное решение `active/blocked/expired`
-и выпуск подписанного ticket. Проверка ticket получателем, replay-защита,
-общий gate P2P/relay/Direct IP, lease и heartbeat относятся к 1.2–1.4.
+- действующий оператор получает подписанный ticket;
+- неизвестный оператор получает `operator_unknown`;
+- заблокированный оператор получает `operator_blocked`;
+- оператор с истёкшим `valid_until` получает `operator_expired`;
+- изменение статуса применяется без пересборки клиента.
 
-## Требования
-
-- Node.js 20 или новее;
-- приватный Ed25519-ключ вне репозитория;
-- файл операторов вне репозитория;
-- TLS reverse proxy перед сервисом в production.
-
-Сервис слушает `127.0.0.1:8443` по умолчанию. Публиковать этот HTTP-порт
-напрямую нельзя: внешний адрес должен использовать HTTPS.
+Проверка ticket получателем, replay-защита, общий gate соединений,
+lease и heartbeat относятся к этапам 1.2–1.4.
 ## Запрос
 
 ```json
@@ -36,56 +30,42 @@
 
 Для `connection_type=direct-ip` обязательно поле `target_nonce`.
 
-Успешный ответ содержит `allowed=true`, `ticket` и `expires_at`.
-Ticket имеет формат `base64url(payload).base64url(signature)`.
-Подпись вычисляется Ed25519 по исходным байтам JSON payload.
+Успешный ответ содержит `allowed=true`, `ticket`, `expires_at`
+и `ticket_version=1`. Ticket имеет формат:
 
-Машинные причины отказа:
+`base64url(payload).base64url(ed25519_signature)`
 
-- `operator_unknown`;
-- `operator_blocked`;
-- `operator_expired`;
-- `operator_inactive`;
-- `invalid_request`;
-- `target_nonce_required`.
-## Локальная проверка
+TTL настраивается в SQLite и ограничен диапазоном 30–600 секунд.
+## Управление операторами
 
-Из каталога `services/masha-auth`:
-
-```powershell
-node --check server.mjs
-node --test test/authorize.test.mjs
-```
-
-Тесты создают временный ключ и временный реестр операторов. Секреты
-и тестовые данные после завершения удаляются.
-
-## Подготовка production-конфигурации
-
-На сервере:
+На VPS из каталога `/opt/masha-auth`:
 
 ```bash
-sudo install -d -m 700 -o masha-auth -g masha-auth /etc/masha-auth
-node /opt/masha-auth/generate-keys.mjs /etc/masha-auth
-sudo cp /opt/masha-auth/operators.example.json /etc/masha-auth/operators.json
-sudo chown masha-auth:masha-auth /etc/masha-auth/operators.json
-sudo chmod 600 /etc/masha-auth/operators.json
+python3 masha_auth.py admin status
+python3 masha_auth.py admin allow OPERATOR_ID
+python3 masha_auth.py admin allow OPERATOR_ID --valid-until 2026-12-31T23:59:59Z
+python3 masha_auth.py admin block OPERATOR_ID
+python3 masha_auth.py admin expire OPERATOR_ID
+python3 masha_auth.py admin remove OPERATOR_ID
 ```
 
-Затем скопировать `deploy/masha-auth.env.example` в
-`/etc/masha-auth/masha-auth.env` и установить systemd unit.
-## Запуск через systemd
+`allow` без `--valid-until` создаёт бессрочное право. Значение
+`--valid-until` может быть Unix timestamp либо датой ISO-8601.
+## Тесты
 
 ```bash
-sudo cp /opt/masha-auth/deploy/masha-auth.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now masha-auth
-curl --fail http://127.0.0.1:8443/healthz
+python3 -m unittest discover -s test -p 'test_*.py' -v
 ```
 
-HTTPS reverse proxy должен передавать только
-`/v1/session/authorize` и при необходимости `/healthz` на
-`http://127.0.0.1:8443`.
+Тесты используют отдельный временный каталог и не изменяют production-базу.
 
-Приватный ключ, рабочий `operators.json` и environment-файл
-не добавляются в Git.
+## Production
+
+- код: `/opt/masha-auth/masha_auth.py`;
+- база: `/opt/masha-auth/data/auth.db`;
+- приватный ключ: `/opt/masha-auth/secrets/signing_key.pem`;
+- systemd unit: `masha-auth.service`;
+- HTTPS: `77.222.38.70:8443`;
+- health check: `GET /health`.
+
+Перед каждым обновлением создаётся резервная копия кода, базы и unit-файла.

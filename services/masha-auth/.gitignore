@@ -1,5 +1,7 @@
-private-key.pem
-public-key-base64.txt
-operators.json
-masha-auth.env
+data/
+secrets/
+public_key.b64
+public_key.pem
+.env
 *.log
+__pycache__/
