@@ -1,4 +1,4 @@
-# Masha Auth — этапы 1.1–1.5
+# Masha Auth — этапы 1.1–1.6
 
 Production-совместимый Python-сервис авторизации сеанса:
 
@@ -64,7 +64,20 @@ Authorize и каждый heartbeat используют единый расчё
 
 Выбранные `grant_id` и `grant_source` подписываются внутри session ticket.
 Отзыв последнего действующего grant прекращает активный lease на следующем
-heartbeat. Списание `time_credit` выполняется на этапе 1.6.
+heartbeat.
+
+## Usage accounting (этап 1.6)
+
+Каждый lease создаёт одну запись `usage_sessions`, связанную с `ticket_jti`,
+`session_id` и выбранным grant. Heartbeat и finish учитывают только разницу
+между уже записанной и текущей серверной длительностью. Накопительный расход
+хранится в `grant_consumption` с уникальными `lease_id` и idempotency key.
+
+Повторный start блокируется по ticket или session binding, а повторные
+heartbeat/finish возвращают уже сохранённый результат без повторного списания.
+Для `time_credit` остаток уменьшается атомарно; при нуле grant получает статус
+`consumed`, а сеанс завершается с `quota_exhausted`. Heartbeat loss также
+фиксирует серверную длительность и расход до конца grace period.
 
 ## Управление операторами
 
@@ -81,6 +94,7 @@ python3 masha_auth.py admin grant OPERATOR_ID --source promo --expires-at 2026-1
 python3 masha_auth.py admin grant OPERATOR_ID --source ad_reward --grant-kind time_credit --quota-seconds 1800
 python3 masha_auth.py admin revoke-grant GRANT_ID
 python3 masha_auth.py admin billing OPERATOR_ID --billing-status overdue
+python3 masha_auth.py admin usage OPERATOR_ID
 ```
 
 `allow` без `--valid-until` создаёт бессрочное право. Значение

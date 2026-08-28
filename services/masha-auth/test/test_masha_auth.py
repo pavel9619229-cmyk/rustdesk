@@ -7,6 +7,7 @@ import tempfile
 import time
 import unittest
 from contextlib import closing
+from unittest import mock
 from pathlib import Path
 
 SERVICE_FILE = Path(__file__).resolve().parents[1] / 'masha_auth.py'
@@ -48,6 +49,17 @@ class AuthorizeTests(unittest.TestCase):
         started = self.auth.lease_start(self.key, {'ticket': authorized[2]})
         self.assertTrue(started[0])
         return started[2]
+
+    def start_time_credit_lease(self, operator_id, quota_seconds):
+        self.auth.set_operator(operator_id, 'active')
+        with self.auth.dbc() as connection:
+            connection.execute("UPDATE access_grants SET status='revoked' WHERE operator_id=?", (operator_id,))
+        grant_id = self.auth.set_grant(operator_id, 'ad_reward', 'time_credit', quota_seconds)
+        authorized = self.request(operator_id, session_id='session-' + operator_id)
+        self.assertTrue(authorized[0])
+        started = self.auth.lease_start(self.key, {'ticket': authorized[2]})
+        self.assertTrue(started[0])
+        return grant_id, started[2]
 
     def test_active_operator_receives_signed_ticket(self):
         self.auth.set_operator('active-operator', 'active')
@@ -154,6 +166,57 @@ class AuthorizeTests(unittest.TestCase):
         with self.auth.dbc() as connection:
             self.assertEqual(connection.execute('SELECT status FROM access_grants WHERE grant_id=?', (expired,)).fetchone()['status'], 'expired')
 
+    def test_usage_accounting_is_incremental_and_idempotent(self):
+        grant_id, lease = self.start_time_credit_lease('usage-idempotent', 100)
+        request = {'lease_id': lease['lease_id'], 'lease_token': lease['lease_token']}
+        with mock.patch.object(self.auth.time, 'time', return_value=lease['started_at'] + 20):
+            first_heartbeat = self.auth.lease_action(request)
+            repeated_heartbeat = self.auth.lease_action(request)
+        self.assertEqual(first_heartbeat[2]['duration_seconds'], 20)
+        self.assertEqual(repeated_heartbeat[2]['duration_seconds'], 20)
+        with mock.patch.object(self.auth.time, 'time', return_value=lease['started_at'] + 40):
+            first_finish = self.auth.lease_action({**request, 'reason': 'normal_close'}, finish=True)
+            repeated_finish = self.auth.lease_action({**request, 'reason': 'normal_close'}, finish=True)
+        self.assertEqual(first_finish[2]['duration_seconds'], 40)
+        self.assertEqual(repeated_finish[2]['duration_seconds'], 40)
+        with self.auth.dbc() as connection:
+            grant = connection.execute('SELECT quota_seconds FROM access_grants WHERE grant_id=?', (grant_id,)).fetchone()
+            usage = connection.execute('SELECT duration_seconds,accounted_seconds FROM usage_sessions WHERE lease_id=?', (lease['lease_id'],)).fetchone()
+            consumption = connection.execute('SELECT seconds FROM grant_consumption WHERE lease_id=?', (lease['lease_id'],)).fetchall()
+        self.assertEqual(grant['quota_seconds'], 60)
+        self.assertEqual(tuple(usage), (40, 40))
+        self.assertEqual([row['seconds'] for row in consumption], [40])
+
+    def test_repeated_start_and_session_id_do_not_duplicate_usage(self):
+        operator_id = 'usage-start-idempotent'
+        self.auth.set_operator(operator_id, 'active')
+        first_ticket = self.request(operator_id, session_id='same-session')[2]
+        second_ticket = self.request(operator_id, session_id='same-session')[2]
+        first = self.auth.lease_start(self.key, {'ticket': first_ticket})
+        replay = self.auth.lease_start(self.key, {'ticket': first_ticket})
+        duplicate_session = self.auth.lease_start(self.key, {'ticket': second_ticket})
+        self.assertTrue(first[0])
+        self.assertEqual(replay[:2], (False, 'ticket_replayed'))
+        self.assertEqual(duplicate_session[:2], (False, 'session_replayed'))
+        with self.auth.dbc() as connection:
+            count = connection.execute("SELECT count(*) FROM usage_sessions WHERE operator_id=? AND session_id='same-session'", (operator_id,)).fetchone()[0]
+        self.assertEqual(count, 1)
+
+    def test_time_credit_exhaustion_closes_and_caps_session(self):
+        grant_id, lease = self.start_time_credit_lease('usage-exhausted', 15)
+        request = {'lease_id': lease['lease_id'], 'lease_token': lease['lease_token']}
+        with mock.patch.object(self.auth.time, 'time', return_value=lease['started_at'] + 20):
+            heartbeat = self.auth.lease_action(request)
+            repeated_finish = self.auth.lease_action(request, finish=True)
+        self.assertEqual(heartbeat[:2], (False, 'quota_exhausted'))
+        self.assertEqual(heartbeat[2]['duration_seconds'], 15)
+        self.assertEqual(repeated_finish[2]['duration_seconds'], 15)
+        with self.auth.dbc() as connection:
+            grant = connection.execute('SELECT quota_seconds,status FROM access_grants WHERE grant_id=?', (grant_id,)).fetchone()
+            consumption = connection.execute('SELECT seconds FROM grant_consumption WHERE lease_id=?', (lease['lease_id'],)).fetchone()
+        self.assertEqual(tuple(grant), (0, 'consumed'))
+        self.assertEqual(consumption['seconds'], 15)
+
     def test_grant_revoke_stops_active_lease(self):
         lease = self.start_lease('lease-grant-revoke')
         with self.auth.dbc() as connection:
@@ -187,6 +250,10 @@ class AuthorizeTests(unittest.TestCase):
             old = int(time.time()) - self.auth.LEASE_GRACE_SECONDS - 5
             connection.execute(
                 'UPDATE leases SET started_at=?,last_heartbeat=? WHERE lease_id=?',
+                (old - 10, old, lease['lease_id']),
+            )
+            connection.execute(
+                'UPDATE usage_sessions SET started_at=?,last_heartbeat_at=? WHERE lease_id=?',
                 (old - 10, old, lease['lease_id']),
             )
             self.auth.finish_stale(connection, int(time.time()))

@@ -44,6 +44,16 @@ def init_db():
         c.execute("CREATE TABLE IF NOT EXISTS access_grants(grant_id TEXT PRIMARY KEY,operator_id TEXT NOT NULL,source_type TEXT NOT NULL CHECK(source_type IN ('payment','ad_reward','trial','promo','admin')),grant_kind TEXT NOT NULL CHECK(grant_kind IN ('time_credit','unlimited_period')),quota_seconds INTEGER,starts_at INTEGER NOT NULL,expires_at INTEGER,status TEXT NOT NULL CHECK(status IN ('active','consumed','expired','revoked')),priority INTEGER NOT NULL DEFAULT 100,source_id TEXT,created_at INTEGER NOT NULL)")
         c.execute('CREATE INDEX IF NOT EXISTS idx_access_grants_operator ON access_grants(operator_id,status,starts_at,expires_at)')
         c.execute("CREATE TABLE IF NOT EXISTS billing_accounts(operator_id TEXT PRIMARY KEY,billing_status TEXT NOT NULL CHECK(billing_status IN ('current','payment_due','overdue','blocked')),updated_at INTEGER NOT NULL)")
+        lease_columns={r['name'] for r in c.execute('PRAGMA table_info(leases)')}
+        if 'grant_id' not in lease_columns:
+            c.execute('ALTER TABLE leases ADD COLUMN grant_id TEXT')
+        if 'grant_source' not in lease_columns:
+            c.execute('ALTER TABLE leases ADD COLUMN grant_source TEXT')
+        c.execute("CREATE TABLE IF NOT EXISTS usage_sessions(usage_id TEXT PRIMARY KEY,lease_id TEXT NOT NULL UNIQUE,session_id TEXT NOT NULL,operator_id TEXT NOT NULL,target_id TEXT NOT NULL,ticket_jti TEXT NOT NULL UNIQUE,grant_id TEXT,started_at INTEGER NOT NULL,last_heartbeat_at INTEGER NOT NULL,ended_at INTEGER,duration_seconds INTEGER NOT NULL DEFAULT 0,accounted_seconds INTEGER NOT NULL DEFAULT 0,close_reason TEXT NOT NULL DEFAULT '')")
+        c.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_session_binding ON usage_sessions(operator_id,session_id)')
+        c.execute("CREATE TABLE IF NOT EXISTS grant_consumption(consumption_id TEXT PRIMARY KEY,grant_id TEXT NOT NULL,lease_id TEXT NOT NULL UNIQUE,session_id TEXT NOT NULL,seconds INTEGER NOT NULL CHECK(seconds>=0),idempotency_key TEXT NOT NULL UNIQUE,recorded_at INTEGER NOT NULL,updated_at INTEGER NOT NULL)")
+        c.execute('CREATE INDEX IF NOT EXISTS idx_grant_consumption_grant ON grant_consumption(grant_id)')
+        c.execute("INSERT OR IGNORE INTO usage_sessions(usage_id,lease_id,session_id,operator_id,target_id,ticket_jti,grant_id,started_at,last_heartbeat_at,ended_at,duration_seconds,accounted_seconds,close_reason) SELECT lease_id,lease_id,session_id,operator_id,target_id,jti,grant_id,started_at,last_heartbeat,finished_at,COALESCE(duration_seconds,0),COALESCE(duration_seconds,0),finish_reason FROM leases")
         now=int(time.time())
         for row in c.execute("SELECT operator_id,valid_until FROM operators o WHERE access_status='active' AND NOT EXISTS(SELECT 1 FROM access_grants g WHERE g.operator_id=o.operator_id)").fetchall():
             grant_id='legacy-admin:'+row['operator_id']
@@ -150,8 +160,43 @@ def entitlement(c,operator_id,now):
 def operator_reason(c,operator_id,now):
     return entitlement(c,operator_id,now)[1]
 
+def account_usage(c,lease,account_at):
+    usage=c.execute('SELECT * FROM usage_sessions WHERE lease_id=?',(lease['lease_id'],)).fetchone()
+    if not usage:
+        return max(0,account_at-lease['started_at']),False
+    desired=max(0,int(account_at)-int(usage['started_at']))
+    accounted=max(0,int(usage['accounted_seconds']))
+    delta=max(0,desired-accounted)
+    grant=c.execute('SELECT grant_kind,quota_seconds,status FROM access_grants WHERE grant_id=?',(usage['grant_id'],)).fetchone()
+    if delta==0:
+        exhausted=bool(grant and grant['grant_kind']=='time_credit' and int(grant['quota_seconds'] or 0)<=0)
+        return accounted,exhausted
+    consumed=delta; exhausted=False
+    if grant and grant['grant_kind']=='time_credit':
+        available=max(0,int(grant['quota_seconds'] or 0))
+        consumed=min(delta,available)
+        remaining=available-consumed
+        exhausted=remaining==0
+        c.execute("UPDATE access_grants SET quota_seconds=?,status=CASE WHEN ?=0 AND status='active' THEN 'consumed' ELSE status END WHERE grant_id=?",(remaining,remaining,usage['grant_id']))
+    new_accounted=accounted+consumed
+    if usage['grant_id'] and consumed:
+        now=int(time.time())
+        c.execute("INSERT INTO grant_consumption(consumption_id,grant_id,lease_id,session_id,seconds,idempotency_key,recorded_at,updated_at) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(lease_id) DO UPDATE SET seconds=excluded.seconds,updated_at=excluded.updated_at",('usage:'+lease['lease_id'],usage['grant_id'],lease['lease_id'],usage['session_id'],new_accounted,'usage:'+lease['lease_id'],now,now))
+    c.execute('UPDATE usage_sessions SET duration_seconds=?,accounted_seconds=? WHERE lease_id=?',(new_accounted,new_accounted,lease['lease_id']))
+    return new_accounted,exhausted
+
+def finalize_lease(c,lease,finished_at,reason):
+    duration,exhausted=account_usage(c,lease,finished_at)
+    actual_reason='quota_exhausted' if exhausted and reason not in ('operator_blocked','operator_expired') else reason
+    actual_finished=int(lease['started_at'])+duration if exhausted else int(finished_at)
+    c.execute('UPDATE leases SET finished_at=?,finish_reason=?,duration_seconds=? WHERE lease_id=? AND finished_at IS NULL',(actual_finished,actual_reason,duration,lease['lease_id']))
+    c.execute('UPDATE usage_sessions SET last_heartbeat_at=?,ended_at=?,duration_seconds=?,accounted_seconds=?,close_reason=? WHERE lease_id=?',(min(int(finished_at),actual_finished),actual_finished,duration,duration,actual_reason,lease['lease_id']))
+    return {'duration_seconds':duration,'finished_at':actual_finished,'finish_reason':actual_reason}
+
 def finish_stale(c,now):
-    c.execute("UPDATE leases SET finished_at=last_heartbeat+?,finish_reason='heartbeat_lost',duration_seconds=(last_heartbeat+?)-started_at WHERE finished_at IS NULL AND last_heartbeat+?<=?",(LEASE_GRACE_SECONDS,LEASE_GRACE_SECONDS,LEASE_GRACE_SECONDS,now))
+    rows=c.execute('SELECT * FROM leases WHERE finished_at IS NULL AND last_heartbeat+?<=?',(LEASE_GRACE_SECONDS,now)).fetchall()
+    for row in rows:
+        finalize_lease(c,row,int(row['last_heartbeat'])+LEASE_GRACE_SECONDS,'heartbeat_lost')
 
 def verified_ticket(k,ticket):
     try:
@@ -162,7 +207,7 @@ def verified_ticket(k,ticket):
     except Exception:
         return None,'invalid_ticket'
     now=int(time.time())
-    required=('operator_id','target_id','session_id','connection_type','jti','iat','exp')
+    required=('operator_id','target_id','session_id','connection_type','grant_id','grant_source','jti','iat','exp')
     if any(not claims.get(f) for f in required) or claims.get('iss')!='masha-auth' or claims.get('v')!=1:
         return None,'invalid_ticket'
     if int(claims['exp'])<=now: return None,'ticket_expired'
@@ -173,13 +218,19 @@ def lease_start(k,req):
     if reason: return False,reason,{}
     now=int(time.time())
     with dbc() as c:
+        c.execute('BEGIN IMMEDIATE')
         finish_stale(c,now)
         reason=operator_reason(c,claims['operator_id'],now)
         if reason: return False,reason,{}
+        grant=c.execute("SELECT grant_id,source_type FROM access_grants WHERE grant_id=? AND operator_id=? AND source_type=? AND status='active' AND starts_at<=? AND (expires_at IS NULL OR expires_at>?) AND (grant_kind='unlimited_period' OR quota_seconds>0)",(claims['grant_id'],claims['operator_id'],claims['grant_source'],now,now)).fetchone()
+        if not grant: return False,'grant_inactive',{}
         existing=c.execute('SELECT lease_id FROM leases WHERE jti=?',(claims['jti'],)).fetchone()
         if existing: return False,'ticket_replayed',{}
+        existing=c.execute('SELECT lease_id FROM usage_sessions WHERE operator_id=? AND session_id=?',(claims['operator_id'],claims['session_id'])).fetchone()
+        if existing: return False,'session_replayed',{}
         lease_id=secrets.token_urlsafe(18); token=secrets.token_urlsafe(32)
-        c.execute('INSERT INTO leases(lease_id,jti,token_hash,operator_id,target_id,session_id,connection_type,started_at,last_heartbeat) VALUES(?,?,?,?,?,?,?,?,?)',(lease_id,claims['jti'],token_hash(token),claims['operator_id'],claims['target_id'],claims['session_id'],claims['connection_type'],now,now))
+        c.execute('INSERT INTO leases(lease_id,jti,token_hash,operator_id,target_id,session_id,connection_type,started_at,last_heartbeat,grant_id,grant_source) VALUES(?,?,?,?,?,?,?,?,?,?,?)',(lease_id,claims['jti'],token_hash(token),claims['operator_id'],claims['target_id'],claims['session_id'],claims['connection_type'],now,now,claims['grant_id'],claims['grant_source']))
+        c.execute('INSERT INTO usage_sessions(usage_id,lease_id,session_id,operator_id,target_id,ticket_jti,grant_id,started_at,last_heartbeat_at) VALUES(?,?,?,?,?,?,?,?,?)',(lease_id,lease_id,claims['session_id'],claims['operator_id'],claims['target_id'],claims['jti'],claims['grant_id'],now,now))
     return True,'allowed',{'lease_id':lease_id,'lease_token':token,'heartbeat_interval_seconds':LEASE_HEARTBEAT_SECONDS,'grace_seconds':LEASE_GRACE_SECONDS,'started_at':now}
 
 def lease_action(req,finish=False):
@@ -188,26 +239,30 @@ def lease_action(req,finish=False):
         return False,'invalid_request',{}
     now=int(time.time())
     with dbc() as c:
+        c.execute('BEGIN IMMEDIATE')
         finish_stale(c,now)
         row=c.execute('SELECT * FROM leases WHERE lease_id=?',(lease_id,)).fetchone()
         if not row or not secrets.compare_digest(row['token_hash'],token_hash(token)):
             return False,'lease_unknown',{}
         if row['finished_at'] is not None:
-            data={'duration_seconds':row['duration_seconds'],'finished_at':row['finished_at']}
+            data={'duration_seconds':row['duration_seconds'],'finished_at':row['finished_at'],'finish_reason':row['finish_reason']}
             return (True,'finished',data) if finish else (False,row['finish_reason'] or 'lease_finished',data)
         if finish:
             reason=req.get('reason','client_finish')
             if not isinstance(reason,str) or not reason or len(reason)>128: reason='client_finish'
-            duration=max(0,now-row['started_at'])
-            c.execute('UPDATE leases SET finished_at=?,finish_reason=?,duration_seconds=? WHERE lease_id=?',(now,reason,duration,lease_id))
-            return True,'finished',{'duration_seconds':duration,'finished_at':now}
+            data=finalize_lease(c,row,now,reason)
+            return True,'finished',data
         reason=operator_reason(c,row['operator_id'],now)
         if reason:
-            duration=max(0,now-row['started_at'])
-            c.execute('UPDATE leases SET finished_at=?,finish_reason=?,duration_seconds=? WHERE lease_id=?',(now,reason,duration,lease_id))
-            return False,reason,{'duration_seconds':duration}
+            data=finalize_lease(c,row,now,reason)
+            return False,data['finish_reason'],data
+        duration,exhausted=account_usage(c,row,now)
+        if exhausted:
+            data=finalize_lease(c,row,now,'quota_exhausted')
+            return False,'quota_exhausted',data
         c.execute('UPDATE leases SET last_heartbeat=? WHERE lease_id=?',(now,lease_id))
-    return True,'allowed',{'server_time':now,'grace_seconds':LEASE_GRACE_SECONDS}
+        c.execute('UPDATE usage_sessions SET last_heartbeat_at=? WHERE lease_id=?',(now,lease_id))
+    return True,'allowed',{'server_time':now,'duration_seconds':duration,'grace_seconds':LEASE_GRACE_SECONDS}
 
 class Handler(BaseHTTPRequestHandler):
     server_version='MashaAuth/1'; sys_version=''
@@ -314,6 +369,18 @@ def admin(a):
         if not a.value: raise SystemExit('operator id required')
         if not a.billing_status: raise SystemExit('--billing-status required')
         set_billing(a.value,a.billing_status); print('ok')
+    elif a.action=='usage':
+        with dbc() as c:
+            if a.value:
+                rows=c.execute('SELECT * FROM usage_sessions WHERE operator_id=? ORDER BY started_at',(a.value,))
+            else:
+                rows=c.execute('SELECT * FROM usage_sessions ORDER BY started_at')
+            for r in rows:
+                print(f"usage\t{r['usage_id']}\t{r['operator_id']}\t{r['session_id']}\t{r['grant_id']}\t{r['started_at']}\t{r['ended_at']}\t{r['duration_seconds']}\t{r['close_reason']}")
+            query='SELECT * FROM grant_consumption WHERE lease_id IN (SELECT lease_id FROM usage_sessions WHERE operator_id=?) ORDER BY recorded_at' if a.value else 'SELECT * FROM grant_consumption ORDER BY recorded_at'
+            consumptions=c.execute(query,(a.value,)) if a.value else c.execute(query)
+            for r in consumptions:
+                print(f"consumption\t{r['consumption_id']}\t{r['grant_id']}\t{r['session_id']}\t{r['seconds']}\t{r['idempotency_key']}")
     elif a.action=='global':
         if a.value not in ('on','off'): raise SystemExit('value must be on/off')
         set_setting('new_sessions_enabled','true' if a.value=='on' else 'false'); print('ok')
@@ -324,7 +391,7 @@ def admin(a):
 
 def main():
     p=argparse.ArgumentParser(); sp=p.add_subparsers(dest='cmd',required=True); sp.add_parser('serve')
-    ap=sp.add_parser('admin'); ap.add_argument('action',choices=['status','allow','block','expire','remove','grant','revoke-grant','billing','global','ttl']); ap.add_argument('value',nargs='?'); ap.add_argument('--note',default=''); ap.add_argument('--valid-until'); ap.add_argument('--source',choices=['payment','ad_reward','trial','promo','admin']); ap.add_argument('--grant-kind',choices=['time_credit','unlimited_period'],default='unlimited_period'); ap.add_argument('--quota-seconds',type=int); ap.add_argument('--expires-at'); ap.add_argument('--source-id'); ap.add_argument('--priority',type=int,default=100); ap.add_argument('--billing-status',choices=['current','payment_due','overdue','blocked'])
+    ap=sp.add_parser('admin'); ap.add_argument('action',choices=['status','allow','block','expire','remove','grant','revoke-grant','billing','usage','global','ttl']); ap.add_argument('value',nargs='?'); ap.add_argument('--note',default=''); ap.add_argument('--valid-until'); ap.add_argument('--source',choices=['payment','ad_reward','trial','promo','admin']); ap.add_argument('--grant-kind',choices=['time_credit','unlimited_period'],default='unlimited_period'); ap.add_argument('--quota-seconds',type=int); ap.add_argument('--expires-at'); ap.add_argument('--source-id'); ap.add_argument('--priority',type=int,default=100); ap.add_argument('--billing-status',choices=['current','payment_due','overdue','blocked'])
     a=p.parse_args(); serve() if a.cmd=='serve' else admin(a)
 
 if __name__=='__main__': main()
