@@ -58,12 +58,13 @@ def set_operator(op,status,note='',valid_until=None):
         c.execute('INSERT INTO operators(operator_id,access_status,note,updated_at,valid_until) VALUES(?,?,?,?,?) ON CONFLICT(operator_id) DO UPDATE SET access_status=excluded.access_status,note=excluded.note,updated_at=excluded.updated_at,valid_until=excluded.valid_until',(op,status,note,int(time.time()),valid_until))
 
 def authorize(k,req):
-    for f in ('operator_id','target_id','connection_type','client_version'):
+    for f in ('operator_id','target_id','session_id','connection_type','client_version'):
         v=req.get(f)
         if not isinstance(v,str) or not v.strip() or len(v)>256:
             return False,'invalid_request',None,None
     op=req['operator_id'].strip(); target=req['target_id'].strip()
-    ctype=req['connection_type'].strip(); ver=req['client_version'].strip()
+    session=req['session_id'].strip(); ctype=req['connection_type'].strip()
+    ver=req['client_version'].strip()
     nonce=req.get('target_nonce')
     if nonce is not None:
         if not isinstance(nonce,str) or not nonce.strip() or len(nonce)>128:
@@ -87,7 +88,7 @@ def authorize(k,req):
         try: ttl=int(setting(c,'ticket_ttl_seconds',str(DEFAULT_TTL)))
         except ValueError: ttl=DEFAULT_TTL
     ttl=max(30,min(ttl,600)); exp=now+ttl
-    claims={'v':1,'iss':'masha-auth','operator_id':op,'target_id':target,'connection_type':ctype,'client_version':ver,'iat':now,'exp':exp,'jti':secrets.token_urlsafe(18)}
+    claims={'v':1,'iss':'masha-auth','operator_id':op,'target_id':target,'session_id':session,'connection_type':ctype,'client_version':ver,'iat':now,'exp':exp,'jti':secrets.token_urlsafe(18)}
     if nonce:
         claims['target_nonce']=nonce
     payload=json.dumps(claims,sort_keys=True,separators=(',',':')).encode()

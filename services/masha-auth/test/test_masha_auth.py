@@ -33,6 +33,7 @@ class AuthorizeTests(unittest.TestCase):
         body = {
             'operator_id': operator_id,
             'target_id': 'target-01',
+            'session_id': 'session-01',
             'connection_type': 'remote',
             'client_version': '1.4.9',
         }
@@ -51,7 +52,13 @@ class AuthorizeTests(unittest.TestCase):
         claims = json.loads(payload)
         self.assertEqual(claims['operator_id'], 'active-operator')
         self.assertEqual(claims['target_id'], 'target-01')
+        self.assertEqual(claims['session_id'], 'session-01')
         self.assertGreater(expires_at, int(time.time()))
+
+    def test_session_id_is_required(self):
+        self.auth.set_operator('session-test-operator', 'active')
+        result = self.request('session-test-operator', session_id='')
+        self.assertEqual(result[:2], (False, 'invalid_request'))
 
     def test_blocked_operator_is_denied(self):
         self.auth.set_operator('blocked-operator', 'blocked')
