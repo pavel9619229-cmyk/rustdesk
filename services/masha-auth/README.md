@@ -15,14 +15,17 @@ ticket ключом Ed25519. Приватный ключ, база и TLS-фай
 - оператор с истёкшим `valid_until` получает `operator_expired`;
 - изменение статуса применяется без пересборки клиента.
 
-Проверка ticket получателем, replay-защита, общий gate соединений,
-lease и heartbeat относятся к этапам 1.2–1.4.
+Проверка ticket получателем и replay-защита реализованы на этапе 1.2
+в `src/masha_ticket.rs`. Общий gate соединений, lease и heartbeat
+относятся к следующим этапам 1.3–1.4.
+
 ## Запрос
 
 ```json
 {
   "operator_id": "operator-01",
   "target_id": "target-01",
+  "session_id": "session-01",
   "connection_type": "remote",
   "client_version": "1.4.9"
 }
