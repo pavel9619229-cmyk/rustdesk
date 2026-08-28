@@ -353,6 +353,7 @@ pub struct Connection {
     server_audit_conn: String,
     server_audit_file: String,
     controlled_context: Option<ControlledContext>,
+    masha_connection_path: crate::masha_ticket::ConnectionPath,
     lr: LoginRequest,
     peer_argb: u32,
     session_last_recv_time: Option<Arc<Mutex<Instant>>>,
@@ -447,6 +448,11 @@ const MILLI1: Duration = Duration::from_millis(1);
 const SEND_TIMEOUT_VIDEO: u64 = 12_000;
 const SEND_TIMEOUT_OTHER: u64 = SEND_TIMEOUT_VIDEO * 10;
 const SESSION_TIMEOUT: Duration = Duration::from_secs(30);
+const MASHA_LOGIN_DENIED: &str = "Masha authorization denied";
+
+lazy_static::lazy_static! {
+    static ref MASHA_TICKET_REPLAY_CACHE: crate::masha_ticket::ReplayCache = Default::default();
+}
 
 impl Connection {
     pub async fn start(
@@ -459,6 +465,7 @@ impl Connection {
         let super::ConnectionMeta {
             control_permissions,
             controlled_context,
+            masha_connection_path,
         } = meta;
         // Android is not supported yet, so we always set control_permissions to None.
         #[cfg(target_os = "android")]
@@ -547,6 +554,7 @@ impl Connection {
             server_audit_conn: "".to_owned(),
             server_audit_file: "".to_owned(),
             controlled_context,
+            masha_connection_path,
             lr: Default::default(),
             peer_argb: 0u32,
             session_last_recv_time: None,
@@ -2446,6 +2454,40 @@ impl Connection {
         self.terminal_persistent = false;
     }
 
+    async fn enforce_masha_login_ticket(&mut self, lr: &mut LoginRequest) -> bool {
+        let (ticket, password) = match crate::masha_ticket::unwrap_login_password(&lr.password) {
+            Ok(value) => value,
+            Err(err) => {
+                log::warn!("Masha gate denied malformed login envelope: {}", err);
+                self.send_login_error(MASHA_LOGIN_DENIED).await;
+                return false;
+            }
+        };
+        let result = crate::masha_ticket::verify_connection_ticket(
+            &ticket,
+            &lr.my_id,
+            &lr.username,
+            lr.session_id,
+            self.masha_connection_path,
+            &self.hash.challenge,
+            &MASHA_TICKET_REPLAY_CACHE,
+        );
+        if let Err(err) = result {
+            log::warn!(
+                "Masha gate denied operator={:?} target={:?} session={} path={:?}: {}",
+                lr.my_id,
+                lr.username,
+                lr.session_id,
+                self.masha_connection_path,
+                err
+            );
+            self.send_login_error(MASHA_LOGIN_DENIED).await;
+            return false;
+        }
+        lr.password = password.into();
+        true
+    }
+
     async fn handle_login_request_without_validation(&mut self, lr: &LoginRequest) {
         self.lr = lr.clone();
         self.peer_argb = crate::str2color(&format!("{}{}", &lr.my_id, &lr.my_platform), 0xff);
@@ -2522,7 +2564,10 @@ impl Connection {
             }
         }
         // After handling CloseReason messages, proceed to process other message types
-        if let Some(message::Union::LoginRequest(lr)) = msg.union {
+        if let Some(message::Union::LoginRequest(mut lr)) = msg.union {
+            if !self.enforce_masha_login_ticket(&mut lr).await {
+                return false;
+            }
             self.handle_login_request_without_validation(&lr).await;
             if self.authorized {
                 return true;
@@ -2806,7 +2851,10 @@ impl Connection {
         } else if let Some(message::Union::SwitchSidesResponse(_s)) = msg.union {
             #[cfg(feature = "flutter")]
             #[cfg(not(any(target_os = "android", target_os = "ios")))]
-            if let Some(lr) = _s.lr.clone().take() {
+            if let Some(mut lr) = _s.lr.clone().take() {
+                if !self.enforce_masha_login_ticket(&mut lr).await {
+                    return false;
+                }
                 self.handle_login_request_without_validation(&lr).await;
                 SWITCH_SIDES_UUID
                     .lock()

@@ -2643,23 +2643,52 @@ impl LoginConfigHandler {
         serde_json::to_string::<HashMap<String, String>>(&x).unwrap_or_default()
     }
 
+    fn masha_binding_ids(&self) -> (String, String) {
+        #[cfg(any(target_os = "android", target_os = "ios"))]
+        let my_id = Config::get_id_or(crate::DEVICE_ID.lock().unwrap().clone());
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+        let my_id = Config::get_id();
+        if let Some((id, _, _)) = self.other_server.as_ref() {
+            let server = Config::get_rendezvous_server();
+            (format!("{my_id}@{server}"), id.clone())
+        } else {
+            (my_id, self.id.clone())
+        }
+    }
+
+    fn masha_authorize_request(&self) -> ResultType<crate::masha_ticket::AuthorizeRequest> {
+        let path = match self.direct {
+            Some(true) => crate::masha_ticket::ConnectionPath::Direct,
+            Some(false) => crate::masha_ticket::ConnectionPath::Relay,
+            None => crate::masha_ticket::ConnectionPath::Unknown,
+        };
+        let connection_type = path
+            .ticket_value()
+            .ok_or_else(|| anyhow!("Masha connection path is unavailable"))?;
+        let target_nonce = self.hash.challenge.trim();
+        if target_nonce.is_empty() {
+            bail!("Masha target nonce is unavailable");
+        }
+        let (operator_id, target_id) = self.masha_binding_ids();
+        Ok(crate::masha_ticket::AuthorizeRequest {
+            operator_id,
+            target_id,
+            session_id: self.session_id.to_string(),
+            connection_type: connection_type.to_owned(),
+            client_version: crate::VERSION.to_owned(),
+            target_nonce: target_nonce.to_owned(),
+        })
+    }
+
     /// Create a [`Message`] for login.
     fn create_login_msg(
         &self,
         os_username: String,
         os_password: String,
         password: Vec<u8>,
+        masha_ticket: String,
     ) -> Message {
-        #[cfg(any(target_os = "android", target_os = "ios"))]
-        let my_id = Config::get_id_or(crate::DEVICE_ID.lock().unwrap().clone());
-        #[cfg(not(any(target_os = "android", target_os = "ios")))]
-        let my_id = Config::get_id();
-        let (my_id, pure_id) = if let Some((id, _, _)) = self.other_server.as_ref() {
-            let server = Config::get_rendezvous_server();
-            (format!("{my_id}@{server}"), id.clone())
-        } else {
-            (my_id, self.id.clone())
-        };
+        let (my_id, pure_id) = self.masha_binding_ids();
         let mut avatar = get_builtin_option(keys::OPTION_AVATAR);
         if avatar.is_empty() {
             avatar = serde_json::from_str::<serde_json::Value>(&LocalConfig::get_option(
@@ -2717,6 +2746,7 @@ impl LoginConfigHandler {
         } else {
             Bytes::new()
         };
+        let password = crate::masha_ticket::wrap_login_password(password, &masha_ticket);
         let mut lr = LoginRequest {
             username: pure_id,
             password: password.into(),
@@ -3586,7 +3616,8 @@ pub async fn handle_hash(
         )
     };
 
-    send_login(lc.clone(), os_username, os_password, password, peer).await;
+    lc.write().unwrap().hash = hash.clone();
+    allow_err!(send_login(lc.clone(), os_username, os_password, password, peer).await);
     lc.write().unwrap().hash = hash;
 }
 
@@ -3630,12 +3661,15 @@ async fn send_login(
     os_password: String,
     password: Vec<u8>,
     peer: &mut Stream,
-) {
+) -> ResultType<()> {
+    let request = lc.read().unwrap().masha_authorize_request()?;
+    let ticket = crate::masha_ticket::request_authorize_ticket(&request).await?;
     let msg_out = lc
         .read()
         .unwrap()
-        .create_login_msg(os_username, os_password, password);
-    allow_err!(peer.send(&msg_out).await);
+        .create_login_msg(os_username, os_password, password, ticket);
+    peer.send(&msg_out).await?;
+    Ok(())
 }
 
 /// Handle login request made from ui.
@@ -3680,7 +3714,7 @@ pub async fn handle_login_from_ui(
     hasher2.update(&lc.read().unwrap().hash.challenge);
     hash_password = hasher2.finalize()[..].to_vec();
 
-    send_login(lc.clone(), os_username, os_password, hash_password, peer).await;
+    allow_err!(send_login(lc.clone(), os_username, os_password, hash_password, peer).await);
 }
 
 async fn send_switch_login_request(
@@ -3688,13 +3722,27 @@ async fn send_switch_login_request(
     peer: &mut Stream,
     uuid: Uuid,
 ) {
+    let request = match lc.read().unwrap().masha_authorize_request() {
+        Ok(request) => request,
+        Err(err) => {
+            log::error!("Masha switch authorization binding failed: {err}");
+            return;
+        }
+    };
+    let ticket = match crate::masha_ticket::request_authorize_ticket(&request).await {
+        Ok(ticket) => ticket,
+        Err(err) => {
+            log::error!("Masha switch authorization failed: {err}");
+            return;
+        }
+    };
     let mut msg_out = Message::new();
     msg_out.set_switch_sides_response(SwitchSidesResponse {
         uuid: Bytes::from(uuid.as_bytes().to_vec()),
         lr: hbb_common::protobuf::MessageField::some(
             lc.read()
                 .unwrap()
-                .create_login_msg("".to_owned(), "".to_owned(), vec![])
+                .create_login_msg("".to_owned(), "".to_owned(), vec![], ticket)
                 .login_request()
                 .to_owned(),
         ),

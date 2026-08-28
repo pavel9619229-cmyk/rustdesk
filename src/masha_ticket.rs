@@ -1,18 +1,96 @@
 use hbb_common::{
+    bail,
     base64::{
         engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},
         Engine as _,
     },
     sodiumoxide::{self, crypto::sign},
+    ResultType,
 };
-use serde::Deserialize;
-use std::{collections::HashMap, fmt, sync::Mutex};
+use serde::{Deserialize, Serialize};
+use std::{
+    collections::HashMap,
+    fmt,
+    sync::Mutex,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 pub const MASHA_AUTH_PUBLIC_KEY_B64: &str = "ScrTUazLLtnsMXrbZUPcXYcyNWx7JgXS6quKrIpHGy4=";
+pub const MASHA_AUTH_URL: &str = "https://77.222.38.70:8443/v1/session/authorize";
 const TICKET_VERSION: u8 = 1;
 const TICKET_ISSUER: &str = "masha-auth";
 const MAX_CLOCK_SKEW_SECONDS: i64 = 30;
 const MAX_TICKET_TTL_SECONDS: i64 = 600;
+const LOGIN_ENVELOPE_MAGIC: &[u8; 8] = b"MSHTKT01";
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ConnectionPath {
+    #[default]
+    Unknown,
+    Direct,
+    Relay,
+}
+
+impl ConnectionPath {
+    pub fn ticket_value(self) -> Option<&'static str> {
+        match self {
+            Self::Unknown => None,
+            Self::Direct => Some("direct-ip"),
+            Self::Relay => Some("relay"),
+        }
+    }
+}
+
+pub fn wrap_login_password(password: Vec<u8>, ticket: &str) -> Vec<u8> {
+    let mut envelope = Vec::with_capacity(16 + ticket.len() + password.len());
+    envelope.extend_from_slice(LOGIN_ENVELOPE_MAGIC);
+    envelope.extend_from_slice(&(ticket.len() as u64).to_be_bytes());
+    envelope.extend_from_slice(ticket.as_bytes());
+    envelope.extend_from_slice(&password);
+    envelope
+}
+
+pub fn unwrap_login_password(envelope: &[u8]) -> Result<(String, Vec<u8>), TicketError> {
+    if envelope.len() < 16 || &envelope[..8] != LOGIN_ENVELOPE_MAGIC {
+        return Err(TicketError::InvalidFormat);
+    }
+    let ticket_len = usize::try_from(u64::from_be_bytes(
+        envelope[8..16]
+            .try_into()
+            .map_err(|_| TicketError::InvalidFormat)?,
+    ))
+    .map_err(|_| TicketError::InvalidFormat)?;
+    let ticket_end = 16usize
+        .checked_add(ticket_len)
+        .filter(|end| *end <= envelope.len())
+        .ok_or(TicketError::InvalidFormat)?;
+    let ticket = std::str::from_utf8(&envelope[16..ticket_end])
+        .map_err(|_| TicketError::InvalidFormat)?
+        .to_owned();
+    if ticket.is_empty() {
+        return Err(TicketError::InvalidFormat);
+    }
+    Ok((ticket, envelope[ticket_end..].to_vec()))
+}
+
+#[derive(Debug, Serialize)]
+pub struct AuthorizeRequest {
+    pub operator_id: String,
+    pub target_id: String,
+    pub session_id: String,
+    pub connection_type: String,
+    pub client_version: String,
+    pub target_nonce: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct AuthorizeResponse {
+    allowed: bool,
+    #[serde(default)]
+    ticket: String,
+    #[serde(default)]
+    reason: String,
+}
 
 #[derive(Clone, Copy, Debug)]
 pub struct TicketBindings<'a> {
@@ -47,6 +125,8 @@ pub enum TicketError {
     InvalidIssuer,
     IssuedInFuture,
     Expired,
+    ClockUnavailable,
+    UnknownConnectionPath,
     BindingMismatch(&'static str),
     Replay,
     ReplayCacheUnavailable,
@@ -65,6 +145,8 @@ impl fmt::Display for TicketError {
             Self::InvalidIssuer => f.write_str("invalid ticket issuer"),
             Self::IssuedInFuture => f.write_str("ticket issued in the future"),
             Self::Expired => f.write_str("ticket expired"),
+            Self::ClockUnavailable => f.write_str("system clock unavailable"),
+            Self::UnknownConnectionPath => f.write_str("unknown connection path"),
             Self::BindingMismatch(field) => write!(f, "ticket binding mismatch: {field}"),
             Self::Replay => f.write_str("ticket replay"),
             Self::ReplayCacheUnavailable => f.write_str("ticket replay cache unavailable"),
@@ -108,6 +190,37 @@ impl ReplayCache {
         Ok(())
     }
 }
+
+pub async fn request_authorize_ticket(request: &AuthorizeRequest) -> ResultType<String> {
+    if request.operator_id.is_empty()
+        || request.target_id.is_empty()
+        || request.session_id.is_empty()
+        || request.connection_type.is_empty()
+        || request.client_version.is_empty()
+        || request.target_nonce.is_empty()
+    {
+        bail!("incomplete Masha authorization binding");
+    }
+
+    let client = crate::hbbs_http::create_http_client_async_with_url(MASHA_AUTH_URL).await;
+    let response = client.post(MASHA_AUTH_URL).json(request).send().await?;
+    let status = response.status();
+    let body = response.bytes().await?;
+    let response: AuthorizeResponse = serde_json::from_slice(&body)?;
+    if !status.is_success() || !response.allowed {
+        let reason = if response.reason.is_empty() {
+            "authorization denied"
+        } else {
+            &response.reason
+        };
+        bail!("Masha authorization denied: {reason}");
+    }
+    if response.ticket.is_empty() {
+        bail!("Masha authorization returned an empty ticket");
+    }
+    Ok(response.ticket)
+}
+
 pub fn production_public_key() -> Result<sign::PublicKey, TicketError> {
     let bytes = STANDARD
         .decode(MASHA_AUTH_PUBLIC_KEY_B64)
@@ -116,6 +229,61 @@ pub fn production_public_key() -> Result<sign::PublicKey, TicketError> {
         .try_into()
         .map_err(|_| TicketError::InvalidPublicKey)?;
     Ok(sign::PublicKey(bytes))
+}
+
+pub fn unix_time_now() -> Result<i64, TicketError> {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs() as i64)
+        .map_err(|_| TicketError::ClockUnavailable)
+}
+
+pub fn verify_connection_ticket(
+    ticket: &str,
+    operator_id: &str,
+    target_id: &str,
+    session_id: u64,
+    path: ConnectionPath,
+    target_nonce: &str,
+    replay_cache: &ReplayCache,
+) -> Result<VerifiedTicket, TicketError> {
+    let public_key = production_public_key()?;
+    verify_connection_ticket_with_key(
+        ticket,
+        operator_id,
+        target_id,
+        session_id,
+        path,
+        target_nonce,
+        unix_time_now()?,
+        &public_key,
+        replay_cache,
+    )
+}
+
+fn verify_connection_ticket_with_key(
+    ticket: &str,
+    operator_id: &str,
+    target_id: &str,
+    session_id: u64,
+    path: ConnectionPath,
+    target_nonce: &str,
+    now: i64,
+    public_key: &sign::PublicKey,
+    replay_cache: &ReplayCache,
+) -> Result<VerifiedTicket, TicketError> {
+    let connection_type = path
+        .ticket_value()
+        .ok_or(TicketError::UnknownConnectionPath)?;
+    let session_id = session_id.to_string();
+    let expected = TicketBindings {
+        operator_id,
+        target_id,
+        session_id: &session_id,
+        connection_type,
+        target_nonce: Some(target_nonce),
+    };
+    verify_and_consume(ticket, &expected, now, public_key, replay_cache)
 }
 
 pub fn verify_and_consume(
@@ -252,6 +420,14 @@ mod tests {
             "jti": "unique-ticket-id-01",
             "target_nonce": "nonce-01"
         })
+    }
+
+    fn connection_claims(connection_type: &str, jti: &str) -> Value {
+        let mut value = claims();
+        value["session_id"] = json!("42");
+        value["connection_type"] = json!(connection_type);
+        value["jti"] = json!(jti);
+        value
     }
 
     fn bindings() -> TicketBindings<'static> {
@@ -401,6 +577,115 @@ mod tests {
         assert_eq!(
             verify_and_consume(&ticket, &bindings(), NOW, &public_key, &replay_cache,),
             Err(TicketError::Replay)
+        );
+    }
+
+    #[test]
+    fn connection_gate_accepts_direct_and_relay_paths() {
+        let (public_key, secret_key) = setup();
+        let replay_cache = ReplayCache::default();
+        let cases = [
+            (ConnectionPath::Direct, "direct-ip", "gate-ticket-direct-01"),
+            (ConnectionPath::Relay, "relay", "gate-ticket-relay-01"),
+        ];
+        for (path, connection_type, jti) in cases {
+            let ticket = make_ticket(&connection_claims(connection_type, jti), &secret_key);
+            let verified = verify_connection_ticket_with_key(
+                &ticket,
+                "operator-01",
+                "target-01",
+                42,
+                path,
+                "nonce-01",
+                NOW,
+                &public_key,
+                &replay_cache,
+            )
+            .unwrap();
+            assert_eq!(verified.connection_type, connection_type);
+        }
+    }
+
+    #[test]
+    fn connection_gate_fails_closed_without_ticket_or_known_path() {
+        let (public_key, secret_key) = setup();
+        let ticket = make_ticket(
+            &connection_claims("direct-ip", "gate-ticket-unknown-01"),
+            &secret_key,
+        );
+        let replay_cache = ReplayCache::default();
+        assert_eq!(
+            verify_connection_ticket_with_key(
+                &ticket,
+                "operator-01",
+                "target-01",
+                42,
+                ConnectionPath::Unknown,
+                "nonce-01",
+                NOW,
+                &public_key,
+                &replay_cache,
+            ),
+            Err(TicketError::UnknownConnectionPath)
+        );
+        assert_eq!(
+            verify_connection_ticket_with_key(
+                "",
+                "operator-01",
+                "target-01",
+                42,
+                ConnectionPath::Direct,
+                "nonce-01",
+                NOW,
+                &public_key,
+                &replay_cache,
+            ),
+            Err(TicketError::InvalidFormat)
+        );
+    }
+
+    #[test]
+    fn connection_gate_rejects_ticket_for_another_path() {
+        let (public_key, secret_key) = setup();
+        let ticket = make_ticket(
+            &connection_claims("relay", "gate-ticket-wrong-path-01"),
+            &secret_key,
+        );
+        assert_eq!(
+            verify_connection_ticket_with_key(
+                &ticket,
+                "operator-01",
+                "target-01",
+                42,
+                ConnectionPath::Direct,
+                "nonce-01",
+                NOW,
+                &public_key,
+                &ReplayCache::default(),
+            ),
+            Err(TicketError::BindingMismatch("connection_type"))
+        );
+    }
+
+    #[test]
+    fn login_envelope_preserves_ticket_and_password() {
+        let password = vec![0, 1, 2, 255];
+        let envelope = wrap_login_password(password.clone(), "signed.ticket.value");
+        let (ticket, restored_password) = unwrap_login_password(&envelope).unwrap();
+        assert_eq!(ticket, "signed.ticket.value");
+        assert_eq!(restored_password, password);
+    }
+
+    #[test]
+    fn login_envelope_fails_closed_when_missing_or_truncated() {
+        assert_eq!(
+            unwrap_login_password(b"ordinary-password"),
+            Err(TicketError::InvalidFormat)
+        );
+        let envelope = wrap_login_password(vec![1, 2, 3], "ticket");
+        assert_eq!(
+            unwrap_login_password(&envelope[..18]),
+            Err(TicketError::InvalidFormat)
         );
     }
 

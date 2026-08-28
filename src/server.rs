@@ -85,6 +85,17 @@ type ConnMap = HashMap<i32, ConnInner>;
 pub struct ConnectionMeta {
     pub control_permissions: Option<ControlPermissions>,
     pub controlled_context: Option<ControlledContext>,
+    pub masha_connection_path: crate::masha_ticket::ConnectionPath,
+}
+
+impl ConnectionMeta {
+    pub fn with_masha_connection_path(
+        mut self,
+        path: crate::masha_ticket::ConnectionPath,
+    ) -> Self {
+        self.masha_connection_path = path;
+        self
+    }
 }
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
@@ -186,7 +197,7 @@ async fn accept_connection_(
             Stream::from(stream, stream_addr),
             addr,
             secure,
-            meta,
+            meta.with_masha_connection_path(crate::masha_ticket::ConnectionPath::Direct),
         )
         .await?;
     }
@@ -333,7 +344,14 @@ async fn create_relay_connection_(
         ..Default::default()
     });
     stream.send(&msg_out).await?;
-    create_tcp_connection(server, stream, peer_addr, secure, meta).await?;
+    create_tcp_connection(
+        server,
+        stream,
+        peer_addr,
+        secure,
+        meta.with_masha_connection_path(crate::masha_ticket::ConnectionPath::Relay),
+    )
+    .await?;
     Ok(())
 }
 

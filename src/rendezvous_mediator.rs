@@ -40,6 +40,7 @@ fn connection_meta(
     ConnectionMeta {
         control_permissions,
         controlled_context,
+        ..Default::default()
     }
 }
 
@@ -898,7 +899,9 @@ async fn direct_server(server: ServerPtr) {
                             hbb_common::Stream::from(stream, local_addr),
                             addr,
                             false,
-                            ConnectionMeta::default(), // Direct connections don't have server-side user context.
+                            ConnectionMeta::default().with_masha_connection_path(
+                                crate::masha_ticket::ConnectionPath::Direct,
+                            ), // Direct connections don't have server-side user context.
                         )
                         .await
                     );
@@ -963,7 +966,14 @@ async fn udp_nat_listen(
             res,
         )
         .await?;
-        crate::server::create_tcp_connection(server, stream.1, peer_addr_v4, true, meta).await?;
+        crate::server::create_tcp_connection(
+            server,
+            stream.1,
+            peer_addr_v4,
+            true,
+            meta.with_masha_connection_path(crate::masha_ticket::ConnectionPath::Direct),
+        )
+        .await?;
         Ok(())
     };
     func.await.map_err(|e: anyhow::Error| {
