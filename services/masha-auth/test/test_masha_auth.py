@@ -135,6 +135,40 @@ class AuthorizeTests(unittest.TestCase):
         self.assertEqual(claims['grant_id'], grant_id)
         self.assertEqual(claims['grant_source'], 'promo')
 
+    def test_repeated_source_event_does_not_duplicate_grant(self):
+        operator_id = 'idempotent-source-event'
+        first = self.auth.set_grant(operator_id, 'ad_reward', 'time_credit', 600, source_id='provider-event-001')
+        repeated = self.auth.set_grant(operator_id, 'ad_reward', 'time_credit', 999, source_id='provider-event-001')
+        self.assertEqual(first, repeated)
+        with self.auth.dbc() as connection:
+            rows = connection.execute("SELECT grant_id,quota_seconds FROM access_grants WHERE source_type='ad_reward' AND source_id='provider-event-001'").fetchall()
+        self.assertEqual([(row['grant_id'], row['quota_seconds']) for row in rows], [(first, 600)])
+        with self.assertRaises(ValueError):
+            self.auth.set_grant('other-source-operator', 'ad_reward', 'time_credit', 600, source_id='provider-event-001')
+
+    def test_configured_concurrent_session_limit(self):
+        operator_id = 'concurrent-limit-operator'
+        self.auth.set_operator(operator_id, 'active')
+        self.auth.set_setting('max_concurrent_sessions', '2')
+        leases = []
+        try:
+            tickets = [self.request(operator_id, session_id='concurrent-' + str(index))[2] for index in range(3)]
+            first = self.auth.lease_start(self.key, {'ticket': tickets[0]})
+            second = self.auth.lease_start(self.key, {'ticket': tickets[1]})
+            third = self.auth.lease_start(self.key, {'ticket': tickets[2]})
+            self.assertTrue(first[0])
+            self.assertTrue(second[0])
+            self.assertEqual(third[:2], (False, 'concurrent_session_limit'))
+            leases.extend((first[2], second[2]))
+            self.auth.lease_action({'lease_id': first[2]['lease_id'], 'lease_token': first[2]['lease_token']}, finish=True)
+            accepted_after_finish = self.auth.lease_start(self.key, {'ticket': tickets[2]})
+            self.assertTrue(accepted_after_finish[0])
+            leases.append(accepted_after_finish[2])
+        finally:
+            self.auth.set_setting('max_concurrent_sessions', '1')
+            for lease in leases:
+                self.auth.lease_action({'lease_id': lease['lease_id'], 'lease_token': lease['lease_token']}, finish=True)
+
     def test_overdue_payment_does_not_block_alternative_grants(self):
         for source in ('ad_reward', 'trial', 'promo', 'admin'):
             operator_id = 'overdue-' + source

@@ -1,4 +1,4 @@
-# Masha Auth — этапы 1.1–1.6
+# Masha Auth — этапы 1.1–1.7
 
 Production-совместимый Python-сервис авторизации сеанса:
 
@@ -64,7 +64,8 @@ Authorize и каждый heartbeat используют единый расчё
 
 Выбранные `grant_id` и `grant_source` подписываются внутри session ticket.
 Отзыв последнего действующего grant прекращает активный lease на следующем
-heartbeat.
+heartbeat. Повторное подтверждённое событие с теми же `source_type` и
+`source_id` возвращает существующий grant и не начисляет право повторно.
 
 ## Usage accounting (этап 1.6)
 
@@ -79,6 +80,24 @@ heartbeat/finish возвращают уже сохранённый резуль
 `consumed`, а сеанс завершается с `quota_exhausted`. Heartbeat loss также
 фиксирует серверную длительность и расход до конца grace period.
 
+Число активных lease одного оператора ограничивается настройкой
+`max_concurrent_sessions` (по умолчанию 1). Проверка и создание lease
+выполняются в одной блокирующей транзакции.
+
+## Автоматическая приёмка (этап 1.7)
+
+Сценарии Active, blocked/expired, fail-closed, Direct IP, replay, wrong binding,
+tamper, lease revoke, heartbeat loss, idempotency, alternative grant и
+concurrent sessions запускаются одной командой:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\test-stage-1.7.ps1
+```
+
+Скрипт запускает Python service tests и Rust release tests настоящего UDU crate,
+проверяет наличие свидетельства каждого из 12 сценариев и завершает работу
+с `STAGE_1_7=PASS` только после успешного прохождения всех проверок.
+
 ## Управление операторами
 
 На VPS из каталога `/opt/masha-auth`:
@@ -91,10 +110,11 @@ python3 masha_auth.py admin block OPERATOR_ID
 python3 masha_auth.py admin expire OPERATOR_ID
 python3 masha_auth.py admin remove OPERATOR_ID
 python3 masha_auth.py admin grant OPERATOR_ID --source promo --expires-at 2026-12-31T23:59:59Z
-python3 masha_auth.py admin grant OPERATOR_ID --source ad_reward --grant-kind time_credit --quota-seconds 1800
+python3 masha_auth.py admin grant OPERATOR_ID --source ad_reward --grant-kind time_credit --quota-seconds 1800 --source-id EVENT_ID
 python3 masha_auth.py admin revoke-grant GRANT_ID
 python3 masha_auth.py admin billing OPERATOR_ID --billing-status overdue
 python3 masha_auth.py admin usage OPERATOR_ID
+python3 masha_auth.py admin concurrency 2
 ```
 
 `allow` без `--valid-until` создаёт бессрочное право. Значение

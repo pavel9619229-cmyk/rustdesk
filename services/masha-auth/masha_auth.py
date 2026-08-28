@@ -40,9 +40,11 @@ def init_db():
             c.execute('ALTER TABLE operators ADD COLUMN valid_until INTEGER')
         c.execute("INSERT OR IGNORE INTO settings VALUES('new_sessions_enabled','true')")
         c.execute("INSERT OR IGNORE INTO settings VALUES('ticket_ttl_seconds',?)",(str(DEFAULT_TTL),))
+        c.execute("INSERT OR IGNORE INTO settings VALUES('max_concurrent_sessions','1')")
         c.execute("CREATE TABLE IF NOT EXISTS leases(lease_id TEXT PRIMARY KEY,jti TEXT NOT NULL UNIQUE,token_hash TEXT NOT NULL,operator_id TEXT NOT NULL,target_id TEXT NOT NULL,session_id TEXT NOT NULL,connection_type TEXT NOT NULL,started_at INTEGER NOT NULL,last_heartbeat INTEGER NOT NULL,finished_at INTEGER,finish_reason TEXT NOT NULL DEFAULT '',duration_seconds INTEGER)")
         c.execute("CREATE TABLE IF NOT EXISTS access_grants(grant_id TEXT PRIMARY KEY,operator_id TEXT NOT NULL,source_type TEXT NOT NULL CHECK(source_type IN ('payment','ad_reward','trial','promo','admin')),grant_kind TEXT NOT NULL CHECK(grant_kind IN ('time_credit','unlimited_period')),quota_seconds INTEGER,starts_at INTEGER NOT NULL,expires_at INTEGER,status TEXT NOT NULL CHECK(status IN ('active','consumed','expired','revoked')),priority INTEGER NOT NULL DEFAULT 100,source_id TEXT,created_at INTEGER NOT NULL)")
         c.execute('CREATE INDEX IF NOT EXISTS idx_access_grants_operator ON access_grants(operator_id,status,starts_at,expires_at)')
+        c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_access_grants_source_event ON access_grants(source_type,source_id) WHERE source_id IS NOT NULL AND source_id!='legacy-operator'")
         c.execute("CREATE TABLE IF NOT EXISTS billing_accounts(operator_id TEXT PRIMARY KEY,billing_status TEXT NOT NULL CHECK(billing_status IN ('current','payment_due','overdue','blocked')),updated_at INTEGER NOT NULL)")
         lease_columns={r['name'] for r in c.execute('PRAGMA table_info(leases)')}
         if 'grant_id' not in lease_columns:
@@ -98,6 +100,12 @@ def set_grant(operator_id,source_type,grant_kind='unlimited_period',quota_second
     if grant_kind=='time_credit' and (quota_seconds is None or int(quota_seconds)<=0): raise ValueError('quota_seconds required')
     now=int(time.time()); grant_id=secrets.token_urlsafe(18)
     with dbc() as c:
+        c.execute('BEGIN IMMEDIATE')
+        if source_id and source_id!='legacy-operator':
+            existing=c.execute('SELECT grant_id,operator_id FROM access_grants WHERE source_type=? AND source_id=?',(source_type,source_id)).fetchone()
+            if existing:
+                if existing['operator_id']!=operator_id: raise ValueError('source event belongs to another operator')
+                return existing['grant_id']
         c.execute("INSERT OR IGNORE INTO operators(operator_id,access_status,note,updated_at,valid_until) VALUES(?,'active','created by grant',?,NULL)",(operator_id,now))
         c.execute("INSERT INTO access_grants(grant_id,operator_id,source_type,grant_kind,quota_seconds,starts_at,expires_at,status,priority,source_id,created_at) VALUES(?,?,?,?,?,?,?,'active',?,?,?)",(grant_id,operator_id,source_type,grant_kind,quota_seconds,now,expires_at,priority,source_id,now))
     return grant_id
@@ -228,6 +236,11 @@ def lease_start(k,req):
         if existing: return False,'ticket_replayed',{}
         existing=c.execute('SELECT lease_id FROM usage_sessions WHERE operator_id=? AND session_id=?',(claims['operator_id'],claims['session_id'])).fetchone()
         if existing: return False,'session_replayed',{}
+        try: max_sessions=int(setting(c,'max_concurrent_sessions','1'))
+        except ValueError: max_sessions=1
+        max_sessions=max(1,min(max_sessions,100))
+        active_count=c.execute('SELECT count(*) FROM leases WHERE operator_id=? AND finished_at IS NULL',(claims['operator_id'],)).fetchone()[0]
+        if active_count>=max_sessions: return False,'concurrent_session_limit',{}
         lease_id=secrets.token_urlsafe(18); token=secrets.token_urlsafe(32)
         c.execute('INSERT INTO leases(lease_id,jti,token_hash,operator_id,target_id,session_id,connection_type,started_at,last_heartbeat,grant_id,grant_source) VALUES(?,?,?,?,?,?,?,?,?,?,?)',(lease_id,claims['jti'],token_hash(token),claims['operator_id'],claims['target_id'],claims['session_id'],claims['connection_type'],now,now,claims['grant_id'],claims['grant_source']))
         c.execute('INSERT INTO usage_sessions(usage_id,lease_id,session_id,operator_id,target_id,ticket_jti,grant_id,started_at,last_heartbeat_at) VALUES(?,?,?,?,?,?,?,?,?)',(lease_id,lease_id,claims['session_id'],claims['operator_id'],claims['target_id'],claims['jti'],claims['grant_id'],now,now))
@@ -330,6 +343,7 @@ def admin(a):
         with dbc() as c:
             print('new_sessions_enabled='+setting(c,'new_sessions_enabled','true'))
             print('ticket_ttl_seconds='+setting(c,'ticket_ttl_seconds',str(DEFAULT_TTL)))
+            print('max_concurrent_sessions='+setting(c,'max_concurrent_sessions','1'))
             for r in c.execute('SELECT operator_id,access_status,note,updated_at,valid_until FROM operators ORDER BY operator_id'):
                 valid_until='' if r['valid_until'] is None else r['valid_until']
                 print(f"operator\t{r['operator_id']}\t{r['access_status']}\t{r['note']}\t{r['updated_at']}\t{valid_until}")
@@ -388,10 +402,14 @@ def admin(a):
         n=int(a.value)
         if n<30 or n>600: raise SystemExit('ttl must be 30..600')
         set_setting('ticket_ttl_seconds',str(n)); print('ok')
+    elif a.action=='concurrency':
+        n=int(a.value)
+        if n<1 or n>100: raise SystemExit('concurrency must be 1..100')
+        set_setting('max_concurrent_sessions',str(n)); print('ok')
 
 def main():
     p=argparse.ArgumentParser(); sp=p.add_subparsers(dest='cmd',required=True); sp.add_parser('serve')
-    ap=sp.add_parser('admin'); ap.add_argument('action',choices=['status','allow','block','expire','remove','grant','revoke-grant','billing','usage','global','ttl']); ap.add_argument('value',nargs='?'); ap.add_argument('--note',default=''); ap.add_argument('--valid-until'); ap.add_argument('--source',choices=['payment','ad_reward','trial','promo','admin']); ap.add_argument('--grant-kind',choices=['time_credit','unlimited_period'],default='unlimited_period'); ap.add_argument('--quota-seconds',type=int); ap.add_argument('--expires-at'); ap.add_argument('--source-id'); ap.add_argument('--priority',type=int,default=100); ap.add_argument('--billing-status',choices=['current','payment_due','overdue','blocked'])
+    ap=sp.add_parser('admin'); ap.add_argument('action',choices=['status','allow','block','expire','remove','grant','revoke-grant','billing','usage','global','ttl','concurrency']); ap.add_argument('value',nargs='?'); ap.add_argument('--note',default=''); ap.add_argument('--valid-until'); ap.add_argument('--source',choices=['payment','ad_reward','trial','promo','admin']); ap.add_argument('--grant-kind',choices=['time_credit','unlimited_period'],default='unlimited_period'); ap.add_argument('--quota-seconds',type=int); ap.add_argument('--expires-at'); ap.add_argument('--source-id'); ap.add_argument('--priority',type=int,default=100); ap.add_argument('--billing-status',choices=['current','payment_due','overdue','blocked'])
     a=p.parse_args(); serve() if a.cmd=='serve' else admin(a)
 
 if __name__=='__main__': main()

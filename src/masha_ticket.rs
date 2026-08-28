@@ -248,6 +248,13 @@ impl ReplayCache {
 }
 
 pub async fn request_authorize_ticket(request: &AuthorizeRequest) -> ResultType<String> {
+    request_authorize_ticket_from_url(request, MASHA_AUTH_URL).await
+}
+
+async fn request_authorize_ticket_from_url(
+    request: &AuthorizeRequest,
+    authorize_url: &str,
+) -> ResultType<String> {
     if request.operator_id.is_empty()
         || request.target_id.is_empty()
         || request.session_id.is_empty()
@@ -258,8 +265,8 @@ pub async fn request_authorize_ticket(request: &AuthorizeRequest) -> ResultType<
         bail!("incomplete Masha authorization binding");
     }
 
-    let client = crate::hbbs_http::create_http_client_async_with_url(MASHA_AUTH_URL).await;
-    let response = client.post(MASHA_AUTH_URL).json(request).send().await?;
+    let client = crate::hbbs_http::create_http_client_async_with_url(authorize_url).await;
+    let response = client.post(authorize_url).json(request).send().await?;
     let status = response.status();
     let body = response.bytes().await?;
     let response: AuthorizeResponse = serde_json::from_slice(&body)?;
@@ -600,6 +607,31 @@ mod tests {
     }
 
     #[test]
+    fn rejects_tampered_payload() {
+        let (public_key, secret_key) = setup();
+        let ticket = make_ticket(&claims(), &secret_key);
+        let (payload, signature) = ticket.split_once('.').unwrap();
+        let mut value: Value =
+            serde_json::from_slice(&URL_SAFE_NO_PAD.decode(payload).unwrap()).unwrap();
+        value["target_id"] = json!("tampered-target");
+        let tampered = format!(
+            "{}.{}",
+            URL_SAFE_NO_PAD.encode(serde_json::to_vec(&value).unwrap()),
+            signature
+        );
+        assert_eq!(
+            verify_and_consume(
+                &tampered,
+                &bindings(),
+                NOW,
+                &public_key,
+                &ReplayCache::default(),
+            ),
+            Err(TicketError::InvalidSignature)
+        );
+    }
+
+    #[test]
     fn rejects_invalid_signature() {
         let (public_key, secret_key) = setup();
         let ticket = make_ticket(&claims(), &secret_key);
@@ -816,6 +848,29 @@ mod tests {
             unwrap_login_password(&envelope[..18]),
             Err(TicketError::InvalidFormat)
         );
+    }
+
+    #[test]
+    fn authorization_server_unavailable_is_fail_closed() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        drop(listener);
+        let request = AuthorizeRequest {
+            operator_id: "operator-01".to_owned(),
+            target_id: "target-01".to_owned(),
+            session_id: "session-01".to_owned(),
+            connection_type: "direct-ip".to_owned(),
+            client_version: "1.4.9".to_owned(),
+            target_nonce: "nonce-01".to_owned(),
+        };
+        let runtime = hbb_common::tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let url = format!("http://{address}/v1/session/authorize");
+        assert!(runtime
+            .block_on(request_authorize_ticket_from_url(&request, &url))
+            .is_err());
     }
 
     #[test]
