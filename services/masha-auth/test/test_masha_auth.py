@@ -6,6 +6,7 @@ import sqlite3
 import tempfile
 import time
 import unittest
+from contextlib import closing
 from pathlib import Path
 
 SERVICE_FILE = Path(__file__).resolve().parents[1] / 'masha_auth.py'
@@ -39,6 +40,14 @@ class AuthorizeTests(unittest.TestCase):
         }
         body.update(changes)
         return self.auth.authorize(self.key, body)
+
+    def start_lease(self, operator_id):
+        self.auth.set_operator(operator_id, 'active')
+        authorized = self.request(operator_id)
+        self.assertTrue(authorized[0])
+        started = self.auth.lease_start(self.key, {'ticket': authorized[2]})
+        self.assertTrue(started[0])
+        return started[2]
 
     def test_active_operator_receives_signed_ticket(self):
         self.auth.set_operator('active-operator', 'active')
@@ -92,10 +101,56 @@ class AuthorizeTests(unittest.TestCase):
         payload = decode_base64url(allowed[2].split('.')[0])
         self.assertEqual(json.loads(payload)['target_nonce'], 'nonce-01')
 
+    def test_lease_heartbeat_renews_active_session(self):
+        lease = self.start_lease('lease-active-operator')
+        result = self.auth.lease_action({
+            'lease_id': lease['lease_id'],
+            'lease_token': lease['lease_token'],
+        })
+        self.assertEqual(result[:2], (True, 'allowed'))
+
+    def test_operator_revoke_stops_active_lease(self):
+        lease = self.start_lease('lease-revoked-operator')
+        self.auth.set_operator('lease-revoked-operator', 'blocked')
+        result = self.auth.lease_action({
+            'lease_id': lease['lease_id'],
+            'lease_token': lease['lease_token'],
+        })
+        self.assertEqual(result[:2], (False, 'operator_blocked'))
+
+    def test_heartbeat_loss_finishes_with_server_duration(self):
+        lease = self.start_lease('lease-lost-operator')
+        with self.auth.dbc() as connection:
+            old = int(time.time()) - self.auth.LEASE_GRACE_SECONDS - 5
+            connection.execute(
+                'UPDATE leases SET started_at=?,last_heartbeat=? WHERE lease_id=?',
+                (old - 10, old, lease['lease_id']),
+            )
+            self.auth.finish_stale(connection, int(time.time()))
+            row = connection.execute(
+                'SELECT finish_reason,duration_seconds FROM leases WHERE lease_id=?',
+                (lease['lease_id'],),
+            ).fetchone()
+        self.assertEqual(row['finish_reason'], 'heartbeat_lost')
+        self.assertEqual(row['duration_seconds'], 10 + self.auth.LEASE_GRACE_SECONDS)
+
+    def test_finish_is_idempotent(self):
+        lease = self.start_lease('lease-finish-operator')
+        request = {
+            'lease_id': lease['lease_id'],
+            'lease_token': lease['lease_token'],
+            'reason': 'normal_close',
+        }
+        first = self.auth.lease_action(request, finish=True)
+        second = self.auth.lease_action(request, finish=True)
+        self.assertEqual(first[:2], (True, 'finished'))
+        self.assertEqual(second[:2], (True, 'finished'))
+        self.assertEqual(first[2]['duration_seconds'], second[2]['duration_seconds'])
+
     def test_legacy_database_is_migrated(self):
         with tempfile.TemporaryDirectory() as directory:
             database = Path(directory) / 'legacy.db'
-            with sqlite3.connect(database) as connection:
+            with closing(sqlite3.connect(database)) as connection:
                 connection.execute(
                     "CREATE TABLE operators("
                     "operator_id TEXT PRIMARY KEY,"
@@ -103,11 +158,12 @@ class AuthorizeTests(unittest.TestCase):
                     "note TEXT NOT NULL DEFAULT '',"
                     "updated_at INTEGER NOT NULL)"
                 )
+                connection.commit()
             original_database = self.auth.DB
             self.auth.DB = database
             try:
                 self.auth.init_db()
-                with sqlite3.connect(database) as connection:
+                with closing(sqlite3.connect(database)) as connection:
                     columns = {
                         row[1]
                         for row in connection.execute(

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-import argparse, base64, json, logging, os, secrets, sqlite3, ssl, time
+import argparse, base64, hashlib, json, logging, os, secrets, sqlite3, ssl, time
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -12,13 +13,23 @@ DB=Path(os.getenv('MASHA_AUTH_DB',str(DATA/'auth.db')))
 KEY=Path(os.getenv('MASHA_AUTH_SIGNING_KEY',str(SECRETS/'signing_key.pem')))
 PUB64=BASE/'public_key.b64'; PUBPEM=BASE/'public_key.pem'
 DEFAULT_TTL=120; MAX_BODY=16384
+LEASE_HEARTBEAT_SECONDS=10; LEASE_GRACE_SECONDS=30
 logging.basicConfig(level=logging.INFO,format='%(asctime)s %(levelname)s %(message)s')
 LOG=logging.getLogger('masha-auth')
 
 def b64u(b): return base64.urlsafe_b64encode(b).rstrip(b'=').decode()
+@contextmanager
 def dbc():
     DATA.mkdir(parents=True,exist_ok=True)
-    c=sqlite3.connect(DB,timeout=5); c.row_factory=sqlite3.Row; return c
+    c=sqlite3.connect(DB,timeout=5); c.row_factory=sqlite3.Row
+    try:
+        yield c
+        c.commit()
+    except Exception:
+        c.rollback()
+        raise
+    finally:
+        c.close()
 
 def init_db():
     with dbc() as c:
@@ -29,6 +40,7 @@ def init_db():
             c.execute('ALTER TABLE operators ADD COLUMN valid_until INTEGER')
         c.execute("INSERT OR IGNORE INTO settings VALUES('new_sessions_enabled','true')")
         c.execute("INSERT OR IGNORE INTO settings VALUES('ticket_ttl_seconds',?)",(str(DEFAULT_TTL),))
+        c.execute("CREATE TABLE IF NOT EXISTS leases(lease_id TEXT PRIMARY KEY,jti TEXT NOT NULL UNIQUE,token_hash TEXT NOT NULL,operator_id TEXT NOT NULL,target_id TEXT NOT NULL,session_id TEXT NOT NULL,connection_type TEXT NOT NULL,started_at INTEGER NOT NULL,last_heartbeat INTEGER NOT NULL,finished_at INTEGER,finish_reason TEXT NOT NULL DEFAULT '',duration_seconds INTEGER)")
 
 def ensure_key():
     SECRETS.mkdir(parents=True,exist_ok=True)
@@ -95,6 +107,79 @@ def authorize(k,req):
     ticket=b64u(payload)+'.'+b64u(k.sign(payload))
     return True,'allowed',ticket,exp
 
+def b64ud(value):
+    return base64.urlsafe_b64decode(value+'='*(-len(value)%4))
+
+def token_hash(value):
+    return hashlib.sha256(value.encode()).hexdigest()
+
+def operator_reason(c,operator_id,now):
+    row=c.execute('SELECT access_status,valid_until FROM operators WHERE operator_id=?',(operator_id,)).fetchone()
+    if not row: return 'operator_unknown'
+    if row['access_status']=='blocked': return 'operator_blocked'
+    if row['access_status']!='active': return 'operator_inactive'
+    if row['valid_until'] is not None and int(row['valid_until'])<=now: return 'operator_expired'
+    return None
+
+def finish_stale(c,now):
+    c.execute("UPDATE leases SET finished_at=last_heartbeat+?,finish_reason='heartbeat_lost',duration_seconds=(last_heartbeat+?)-started_at WHERE finished_at IS NULL AND last_heartbeat+?<=?",(LEASE_GRACE_SECONDS,LEASE_GRACE_SECONDS,LEASE_GRACE_SECONDS,now))
+
+def verified_ticket(k,ticket):
+    try:
+        payload_text,signature_text=ticket.split('.')
+        payload=b64ud(payload_text); signature=b64ud(signature_text)
+        k.public_key().verify(signature,payload)
+        claims=json.loads(payload)
+    except Exception:
+        return None,'invalid_ticket'
+    now=int(time.time())
+    required=('operator_id','target_id','session_id','connection_type','jti','iat','exp')
+    if any(not claims.get(f) for f in required) or claims.get('iss')!='masha-auth' or claims.get('v')!=1:
+        return None,'invalid_ticket'
+    if int(claims['exp'])<=now: return None,'ticket_expired'
+    return claims,None
+
+def lease_start(k,req):
+    claims,reason=verified_ticket(k,req.get('ticket',''))
+    if reason: return False,reason,{}
+    now=int(time.time())
+    with dbc() as c:
+        finish_stale(c,now)
+        reason=operator_reason(c,claims['operator_id'],now)
+        if reason: return False,reason,{}
+        existing=c.execute('SELECT lease_id FROM leases WHERE jti=?',(claims['jti'],)).fetchone()
+        if existing: return False,'ticket_replayed',{}
+        lease_id=secrets.token_urlsafe(18); token=secrets.token_urlsafe(32)
+        c.execute('INSERT INTO leases(lease_id,jti,token_hash,operator_id,target_id,session_id,connection_type,started_at,last_heartbeat) VALUES(?,?,?,?,?,?,?,?,?)',(lease_id,claims['jti'],token_hash(token),claims['operator_id'],claims['target_id'],claims['session_id'],claims['connection_type'],now,now))
+    return True,'allowed',{'lease_id':lease_id,'lease_token':token,'heartbeat_interval_seconds':LEASE_HEARTBEAT_SECONDS,'grace_seconds':LEASE_GRACE_SECONDS,'started_at':now}
+
+def lease_action(req,finish=False):
+    lease_id=req.get('lease_id',''); token=req.get('lease_token','')
+    if not isinstance(lease_id,str) or not isinstance(token,str) or not lease_id or not token:
+        return False,'invalid_request',{}
+    now=int(time.time())
+    with dbc() as c:
+        finish_stale(c,now)
+        row=c.execute('SELECT * FROM leases WHERE lease_id=?',(lease_id,)).fetchone()
+        if not row or not secrets.compare_digest(row['token_hash'],token_hash(token)):
+            return False,'lease_unknown',{}
+        if row['finished_at'] is not None:
+            data={'duration_seconds':row['duration_seconds'],'finished_at':row['finished_at']}
+            return (True,'finished',data) if finish else (False,row['finish_reason'] or 'lease_finished',data)
+        if finish:
+            reason=req.get('reason','client_finish')
+            if not isinstance(reason,str) or not reason or len(reason)>128: reason='client_finish'
+            duration=max(0,now-row['started_at'])
+            c.execute('UPDATE leases SET finished_at=?,finish_reason=?,duration_seconds=? WHERE lease_id=?',(now,reason,duration,lease_id))
+            return True,'finished',{'duration_seconds':duration,'finished_at':now}
+        reason=operator_reason(c,row['operator_id'],now)
+        if reason:
+            duration=max(0,now-row['started_at'])
+            c.execute('UPDATE leases SET finished_at=?,finish_reason=?,duration_seconds=? WHERE lease_id=?',(now,reason,duration,lease_id))
+            return False,reason,{'duration_seconds':duration}
+        c.execute('UPDATE leases SET last_heartbeat=? WHERE lease_id=?',(now,lease_id))
+    return True,'allowed',{'server_time':now,'grace_seconds':LEASE_GRACE_SECONDS}
+
 class Handler(BaseHTTPRequestHandler):
     server_version='MashaAuth/1'; sys_version=''
     def log_message(self,fmt,*args): LOG.info('%s %s',self.client_address[0],fmt%args)
@@ -108,17 +193,28 @@ class Handler(BaseHTTPRequestHandler):
         if self.path=='/health': self.sendj(200,{'status':'ok','service':'masha-auth','version':1})
         else: self.sendj(404,{'error':'not_found'})
     def do_POST(self):
-        if self.path!='/v1/session/authorize': return self.sendj(404,{'error':'not_found'})
+        paths=('/v1/session/authorize','/v1/session/lease/start','/v1/session/lease/heartbeat','/v1/session/lease/finish')
+        if self.path not in paths: return self.sendj(404,{'error':'not_found'})
         try: n=int(self.headers.get('Content-Length','0'))
         except ValueError: n=0
         if n<=0 or n>MAX_BODY: return self.sendj(400,{'allowed':False,'reason':'invalid_request'})
         try: body=json.loads(self.rfile.read(n).decode())
         except Exception: return self.sendj(400,{'allowed':False,'reason':'invalid_json'})
         if not isinstance(body,dict): return self.sendj(400,{'allowed':False,'reason':'invalid_request'})
-        ok,reason,ticket,exp=authorize(self.server.signing_key,body)
-        LOG.info('authorize operator=%r target=%r allowed=%s reason=%s',str(body.get('operator_id',''))[:64],str(body.get('target_id',''))[:64],ok,reason)
-        if not ok: return self.sendj(403,{'allowed':False,'reason':reason})
-        self.sendj(200,{'allowed':True,'ticket':ticket,'expires_at':exp,'ticket_version':1})
+        if self.path=='/v1/session/authorize':
+            ok,reason,ticket,exp=authorize(self.server.signing_key,body)
+            LOG.info('authorize operator=%r target=%r allowed=%s reason=%s',str(body.get('operator_id',''))[:64],str(body.get('target_id',''))[:64],ok,reason)
+            if not ok: return self.sendj(403,{'allowed':False,'reason':reason})
+            return self.sendj(200,{'allowed':True,'ticket':ticket,'expires_at':exp,'ticket_version':1})
+        if self.path.endswith('/start'):
+            ok,reason,data=lease_start(self.server.signing_key,body)
+        elif self.path.endswith('/heartbeat'):
+            ok,reason,data=lease_action(body)
+        else:
+            ok,reason,data=lease_action(body,finish=True)
+        LOG.info('lease path=%s id=%r allowed=%s reason=%s',self.path,str(body.get('lease_id',''))[:32],ok,reason)
+        response={'allowed':ok,'reason':reason}; response.update(data)
+        self.sendj(200 if ok else 403,response)
 
 def serve():
     init_db(); k=ensure_key()

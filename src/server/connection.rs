@@ -354,6 +354,8 @@ pub struct Connection {
     server_audit_file: String,
     controlled_context: Option<ControlledContext>,
     masha_connection_path: crate::masha_ticket::ConnectionPath,
+    masha_pending_ticket: Option<String>,
+    masha_lease: Option<crate::masha_ticket::ActiveLease>,
     lr: LoginRequest,
     peer_argb: u32,
     session_last_recv_time: Option<Arc<Mutex<Instant>>>,
@@ -555,6 +557,8 @@ impl Connection {
             server_audit_file: "".to_owned(),
             controlled_context,
             masha_connection_path,
+            masha_pending_ticket: None,
+            masha_lease: None,
             lr: Default::default(),
             peer_argb: 0u32,
             session_last_recv_time: None,
@@ -1075,6 +1079,26 @@ impl Connection {
                 _ = second_timer.tick() => {
                     #[cfg(windows)]
                     conn.portable_check();
+                    let mut lease_close_reason = None;
+                    if let Some(lease) = conn.masha_lease.as_mut() {
+                        if lease.heartbeat_due() {
+                            match crate::masha_ticket::heartbeat_lease(lease).await {
+                                Ok(true) => {}
+                                Ok(false) => lease_close_reason = Some("Masha lease revoked"),
+                                Err(err) => {
+                                    log::warn!("Masha lease heartbeat failed: {}", err);
+                                    if lease.grace_expired() {
+                                        lease_close_reason = Some("Masha heartbeat lost");
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if let Some(reason) = lease_close_reason {
+                        conn.send_close_reason_no_retry(reason).await;
+                        conn.on_close(reason, true).await;
+                        break;
+                    }
                     raii::AuthedConnID::check_wake_lock_on_setting_changed();
                     if let Some((instant, minute)) = conn.auto_disconnect_timer.as_ref() {
                         if instant.elapsed().as_secs() > minute * 60 {
@@ -1661,6 +1685,21 @@ impl Connection {
         }
         if !self.connect_port_forward_if_needed().await {
             return false;
+        }
+        let ticket = match self.masha_pending_ticket.take() {
+            Some(ticket) => ticket,
+            None => {
+                self.send_login_error(MASHA_LOGIN_DENIED).await;
+                return false;
+            }
+        };
+        match crate::masha_ticket::start_lease(&ticket).await {
+            Ok(lease) => self.masha_lease = Some(lease),
+            Err(err) => {
+                log::warn!("Masha lease start failed: {}", err);
+                self.send_login_error(MASHA_LOGIN_DENIED).await;
+                return false;
+            }
         }
         self.authorized = true;
         let (conn_type, auth_conn_type) = if self.file_transfer.is_some() {
@@ -2484,6 +2523,7 @@ impl Connection {
             self.send_login_error(MASHA_LOGIN_DENIED).await;
             return false;
         }
+        self.masha_pending_ticket = Some(ticket);
         lr.password = password.into();
         true
     }
@@ -4833,6 +4873,11 @@ impl Connection {
             return;
         }
         self.closed = true;
+        if let Some(lease) = self.masha_lease.take() {
+            if let Err(err) = crate::masha_ticket::finish_lease(&lease, reason).await {
+                log::warn!("Masha lease finish failed: {}", err);
+            }
+        }
         // If voice A,B -> C, and A,B has voice call
         // B disconnects, C will reset the voice call input.
         //

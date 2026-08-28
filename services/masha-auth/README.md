@@ -1,4 +1,4 @@
-# Masha Auth — этап 1.1
+# Masha Auth — этапы 1.1–1.4
 
 Production-совместимый Python-сервис авторизации сеанса:
 
@@ -16,8 +16,8 @@ ticket ключом Ed25519. Приватный ключ, база и TLS-фай
 - изменение статуса применяется без пересборки клиента.
 
 Проверка ticket получателем и replay-защита реализованы на этапе 1.2
-в `src/masha_ticket.rs`. Общий gate соединений, lease и heartbeat
-относятся к следующим этапам 1.3–1.4.
+в `src/masha_ticket.rs`. Общий gate всех путей соединений реализован
+на этапе 1.3, lease и heartbeat — на этапе 1.4.
 
 ## Запрос
 
@@ -39,6 +39,20 @@ ticket ключом Ed25519. Приватный ключ, база и TLS-фай
 `base64url(payload).base64url(ed25519_signature)`
 
 TTL настраивается в SQLite и ограничен диапазоном 30–600 секунд.
+## Lease и heartbeat
+
+После локального принятия соединения получатель создаёт lease:
+
+- `POST /v1/session/lease/start`;
+- `POST /v1/session/lease/heartbeat`;
+- `POST /v1/session/lease/finish`.
+
+Heartbeat отправляется каждые 10 секунд. Grace period при недоступности
+сервера — 30 секунд. Блокировка или истечение права немедленно отклоняют
+следующий heartbeat и завершают сеанс. Пропажа heartbeat переводит lease
+в `heartbeat_lost`. Сервер сохраняет `started_at`, `finished_at`,
+причину завершения и `duration_seconds`. Повторный finish идемпотентен.
+
 ## Управление операторами
 
 На VPS из каталога `/opt/masha-auth`:

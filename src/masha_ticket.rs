@@ -12,11 +12,14 @@ use std::{
     collections::HashMap,
     fmt,
     sync::Mutex,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 pub const MASHA_AUTH_PUBLIC_KEY_B64: &str = "ScrTUazLLtnsMXrbZUPcXYcyNWx7JgXS6quKrIpHGy4=";
 pub const MASHA_AUTH_URL: &str = "https://77.222.38.70:8443/v1/session/authorize";
+const MASHA_LEASE_START_URL: &str = "https://77.222.38.70:8443/v1/session/lease/start";
+const MASHA_LEASE_HEARTBEAT_URL: &str = "https://77.222.38.70:8443/v1/session/lease/heartbeat";
+const MASHA_LEASE_FINISH_URL: &str = "https://77.222.38.70:8443/v1/session/lease/finish";
 const TICKET_VERSION: u8 = 1;
 const TICKET_ISSUER: &str = "masha-auth";
 const MAX_CLOCK_SKEW_SECONDS: i64 = 30;
@@ -90,6 +93,59 @@ struct AuthorizeResponse {
     ticket: String,
     #[serde(default)]
     reason: String,
+}
+
+#[derive(Debug, Serialize)]
+struct LeaseStartRequest<'a> {
+    ticket: &'a str,
+}
+
+#[derive(Debug, Serialize)]
+struct LeaseActionRequest<'a> {
+    lease_id: &'a str,
+    lease_token: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reason: Option<&'a str>,
+}
+
+#[derive(Debug, Deserialize)]
+struct LeaseResponse {
+    allowed: bool,
+    #[serde(default)]
+    reason: String,
+    #[serde(default)]
+    lease_id: String,
+    #[serde(default)]
+    lease_token: String,
+    #[serde(default)]
+    heartbeat_interval_seconds: u64,
+    #[serde(default)]
+    grace_seconds: u64,
+}
+
+#[derive(Debug)]
+pub struct ActiveLease {
+    lease_id: String,
+    lease_token: String,
+    heartbeat_interval: Duration,
+    grace: Duration,
+    last_success: Instant,
+    next_heartbeat: Instant,
+}
+
+impl ActiveLease {
+    pub fn heartbeat_due(&self) -> bool {
+        Instant::now() >= self.next_heartbeat
+    }
+
+    pub fn grace_expired(&self) -> bool {
+        self.last_success.elapsed() >= self.grace
+    }
+
+    fn mark_success(&mut self) {
+        self.last_success = Instant::now();
+        self.next_heartbeat = self.last_success + self.heartbeat_interval;
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -219,6 +275,79 @@ pub async fn request_authorize_ticket(request: &AuthorizeRequest) -> ResultType<
         bail!("Masha authorization returned an empty ticket");
     }
     Ok(response.ticket)
+}
+
+pub async fn start_lease(ticket: &str) -> ResultType<ActiveLease> {
+    if ticket.is_empty() {
+        bail!("cannot start Masha lease without a ticket");
+    }
+    let client = crate::hbbs_http::create_http_client_async_with_url(MASHA_LEASE_START_URL).await;
+    let response = client
+        .post(MASHA_LEASE_START_URL)
+        .json(&LeaseStartRequest { ticket })
+        .send()
+        .await?;
+    let status = response.status();
+    let body: LeaseResponse = serde_json::from_slice(&response.bytes().await?)?;
+    if !status.is_success() || !body.allowed {
+        bail!("Masha lease denied: {}", body.reason);
+    }
+    if body.lease_id.is_empty()
+        || body.lease_token.is_empty()
+        || !(1..=60).contains(&body.heartbeat_interval_seconds)
+        || body.grace_seconds < body.heartbeat_interval_seconds
+        || body.grace_seconds > 300
+    {
+        bail!("Masha lease returned invalid parameters");
+    }
+    let now = Instant::now();
+    let heartbeat_interval = Duration::from_secs(body.heartbeat_interval_seconds);
+    Ok(ActiveLease {
+        lease_id: body.lease_id,
+        lease_token: body.lease_token,
+        heartbeat_interval,
+        grace: Duration::from_secs(body.grace_seconds),
+        last_success: now,
+        next_heartbeat: now + heartbeat_interval,
+    })
+}
+
+pub async fn heartbeat_lease(lease: &mut ActiveLease) -> ResultType<bool> {
+    let client =
+        crate::hbbs_http::create_http_client_async_with_url(MASHA_LEASE_HEARTBEAT_URL).await;
+    let response = client
+        .post(MASHA_LEASE_HEARTBEAT_URL)
+        .json(&LeaseActionRequest {
+            lease_id: &lease.lease_id,
+            lease_token: &lease.lease_token,
+            reason: None,
+        })
+        .send()
+        .await?;
+    let status = response.status();
+    let body: LeaseResponse = serde_json::from_slice(&response.bytes().await?)?;
+    if status.is_success() && body.allowed {
+        lease.mark_success();
+        return Ok(true);
+    }
+    Ok(false)
+}
+
+pub async fn finish_lease(lease: &ActiveLease, reason: &str) -> ResultType<()> {
+    let client = crate::hbbs_http::create_http_client_async_with_url(MASHA_LEASE_FINISH_URL).await;
+    let response = client
+        .post(MASHA_LEASE_FINISH_URL)
+        .json(&LeaseActionRequest {
+            lease_id: &lease.lease_id,
+            lease_token: &lease.lease_token,
+            reason: Some(reason),
+        })
+        .send()
+        .await?;
+    if !response.status().is_success() {
+        bail!("Masha lease finish failed");
+    }
+    Ok(())
 }
 
 pub fn production_public_key() -> Result<sign::PublicKey, TicketError> {
