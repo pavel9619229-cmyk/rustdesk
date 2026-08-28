@@ -1,0 +1,8 @@
+{
+  "operators": {
+    "replace-with-operator-id": {
+      "status": "active",
+      "valid_until": "2026-12-31T23:59:59Z"
+    }
+  }
+}

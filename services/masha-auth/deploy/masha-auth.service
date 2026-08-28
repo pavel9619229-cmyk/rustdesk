@@ -1,0 +1,22 @@
+[Unit]
+Description=Masha session authorization service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=masha-auth
+Group=masha-auth
+EnvironmentFile=/etc/masha-auth/masha-auth.env
+ExecStart=/usr/bin/node /opt/masha-auth/server.mjs
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/etc/masha-auth
+WorkingDirectory=/opt/masha-auth
+
+[Install]
+WantedBy=multi-user.target

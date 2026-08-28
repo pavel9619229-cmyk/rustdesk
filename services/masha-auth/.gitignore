@@ -1,0 +1,5 @@
+private-key.pem
+public-key-base64.txt
+operators.json
+masha-auth.env
+*.log
