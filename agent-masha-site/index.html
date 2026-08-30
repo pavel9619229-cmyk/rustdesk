@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
   <title>УДУ — удалённый доступ на базе российских серверов</title>
   <meta name="description" content="УДУ — удалённый доступ на базе российских серверов. Скачать актуальную сборку для Windows.">
   <meta name="robots" content="index,follow">
@@ -13,8 +13,28 @@
   <!-- SEO RESERVED: /mobile — Агент Маша для смартфона (будущий проект) -->
   <!-- SEO RESERVED: /planner — Планировщик Маша (будущий проект) -->
   <!-- SEO RESERVED: /services/* — будущие сервисы бренда Агент Маша -->
-  <link rel="stylesheet" href="styles.css?v=20260830-2">
-</head>
+  <style>
+    *{box-sizing:border-box} html,body{margin:0;width:100%;max-width:100%;min-width:0;overflow-x:hidden;font-family:Segoe UI,Arial,sans-serif}
+    body,.page{min-height:100vh;background:#e9f6df;color:#17391c}.page{width:100%;max-width:100vw;overflow-x:hidden}
+    .hero,.hero-media{width:100%;max-width:100vw;min-width:0}.hero-media{position:relative;line-height:0;overflow:hidden}
+    .hero-image{display:block;width:100%;max-width:100%;height:auto}
+    .hero-shade{position:absolute;inset:0;background:linear-gradient(90deg,rgba(8,28,12,.70),rgba(8,28,12,.40) 38%,rgba(8,28,12,.06) 75%)}
+    h1{position:absolute;z-index:1;left:4vw;bottom:4vw;margin:0;width:min(720px,52vw);color:#fff;font-size:clamp(36px,5vw,76px);line-height:1.02;letter-spacing:-.035em;text-shadow:0 2px 18px rgba(0,0,0,.28)}
+    .download{display:flex;justify-content:center;width:100%;padding:clamp(30px,5vw,64px) 16px;text-align:center}
+    .download-link{display:inline-block;max-width:100%;color:#135fc2;font-size:clamp(22px,3vw,44px);font-weight:700;line-height:1.2;text-decoration:underline;text-underline-offset:6px;white-space:normal;overflow-wrap:anywhere}
+  </style>
+</head><style>
+@media(max-width:900px){
+  .hero-shade{background:linear-gradient(180deg,rgba(8,28,12,.12),rgba(8,28,12,.22) 48%,rgba(8,28,12,.62))}
+  h1{left:3vw;right:3vw;bottom:3vw;width:auto;font-size:clamp(28px,5.6vw,44px);line-height:1.04}
+  .download{padding:32px 14px 46px}.download-link{font-size:clamp(22px,4.2vw,32px)}
+}
+@media(max-width:600px){
+  h1{left:14px;right:14px;bottom:12px;font-size:clamp(20px,5.5vw,28px);line-height:1.06;letter-spacing:-.02em}
+  .download{padding:26px 12px 38px}.download-link{font-size:clamp(19px,5vw,24px)}
+}
+@media(max-width:360px){h1{left:12px;right:12px;bottom:10px;font-size:19px}.download-link{font-size:18px}}
+</style>
 <body>
   <main class="page">
     <header class="hero" aria-label="УДУ — удалённый доступ">
@@ -23,10 +43,9 @@
         <div class="hero-shade"></div>
         <h1>Удаленный доступ на базе российских серверов.</h1>
       </div>
-    </header>    <section class="download">
-      <a class="download-link" href="../masha-remote-operator-windows-x86_64.zip" download>
-        Скачать актуальную сборку
-      </a>
+    </header>
+    <section class="download">
+      <a class="download-link" href="../masha-remote-operator-windows-x86_64.zip" download>Скачать актуальную сборку</a>
     </section>
   </main>
 </body>
