@@ -460,19 +460,19 @@ def page_stage2(c):
     draw_wrapped(c, "Сначала серверный учёт права доступа и долга; затем платёжный провайдер и альтернативные способы доступа.", x + 90, y - 11, width - 104, "small")
     y -= 57
 
-    draw_box(c, x, y, width, 118, PALE_GREEN, GREEN)
-    c.setFillColor(GREEN); c.setFont("BodyBold", 12); c.drawString(x + 16, y - 22, "2.0  СЕРВЕРНАЯ ПОСТОПЛАТА")
-    c.setFillColor(GREEN); c.setFont("BodyBold", 8); c.drawRightString(x + width - 16, y - 22, "ЗАВЕРШЁН")
-    c.setFillColor(TEXT); c.setFont("Body", 8.2)
-    c.drawString(x + 16, y - 42, "Тариф 1 ₽/час; server duration, debt, due/grace, T-10 и /v1/access/status развёрнуты на VPS.")
-    c.setFont("BodyBold", 8.2); c.drawString(x + 16, y - 63, "Результат приёмки:")
+    draw_box(c, x, y, width, 118, PALE_ORANGE, ORANGE)
+    c.setFillColor(ORANGE); c.setFont("BodyBold", 12); c.drawString(x + 16, y - 22, "2.0  СЕРВЕРНАЯ ПОСТОПЛАТА")
+    c.setFillColor(ORANGE); c.setFont("BodyBold", 7.5); c.drawRightString(x + width - 16, y - 22, "СЕРВЕР ГОТОВ")
+    c.setFillColor(ORANGE); c.setFont("BodyBold", 8.2)
+    c.drawString(x + 16, y - 42, "ВЫПОЛНЯЕТСЯ ФРОНТЕНД-ПРОВЕРКА")
+    c.setFillColor(TEXT); c.setFont("BodyBold", 8.2); c.drawString(x + 16, y - 63, "До окончательной приёмки требуется:")
     c.setFont("Body", 7.7)
-    c.drawString(x + 28, y - 79, "• 29 тестов пройдены; 1 час = 1 ₽; повторный finish идемпотентен;")
-    c.drawString(x + 28, y - 92, "• просрочка без grant блокирует; ad_reward, promo и admin сохраняют доступ;")
-    c.drawString(x + 28, y - 105, "• production: T-10, блокировка, alternative grant, cleanup и integrity_check - PASS.")
+    c.drawString(x + 28, y - 79, "• вывести тариф, долг, срок оплаты, grace period и T-10 в приложение;")
+    c.drawString(x + 28, y - 92, "• показать итоговый статус и источник права: postpaid, promo, ad_reward или admin;")
+    c.drawString(x + 28, y - 105, "• собрать Windows x64 и провести ручной тест desktop -> Toshiba.")
     y -= 132
 
-    y = roadmap_row(c, x, y, width, "2.1", "ЮKassa", "ТЕКУЩИЙ ЭТАП", "Создание платежа, webhook, сверка статуса и закрытие задолженности.", PALE_ORANGE, ORANGE, ORANGE)
+    y = roadmap_row(c, x, y, width, "2.1", "ЮKassa", "СЛЕДУЮЩИЙ", "Создание платежа, webhook, сверка статуса и закрытие задолженности.", PALE_GREEN, LINE)
     y = roadmap_row(c, x, y, width, "2.2", "Rewarded-реклама", "ПОСЛЕ 2.1", "Grant ad_reward с серверным сроком действия; без обхода платёжных правил.")
     y = roadmap_row(c, x, y, width, "2.3", "Установщик и автообновление", "ПОСЛЕ БИЛЛИНГА", "Подписанный установщик, проверяемое обновление, контролируемый откат.")
     y = roadmap_row(c, x, y, width, "2.4", "Защита бинарей", "ПЕРЕД ПУБЛИКАЦИЕЙ", "Подпись, контроль целостности и базовое усложнение подмены клиента.")
@@ -480,7 +480,7 @@ def page_stage2(c):
     y = roadmap_row(c, x, y, width, "2.6", "Сайт и выпуск", "ФИНАЛ", "Тарифы, документы, загрузка, поддержка и публичный контур.")
     draw_box(c, x, y + 2, width, 46, PALE_ORANGE, ORANGE)
     c.setFillColor(ORANGE); c.setFont("BodyBold", 8.5); c.drawString(x + 14, y - 15, "БЛИЖАЙШАЯ КОНТРОЛЬНАЯ ТОЧКА")
-    c.setFillColor(TEXT); c.setFont("Body", 7.8); c.drawString(x + 14, y - 32, "Этап 2.1: платёж YooKassa, проверенный webhook и автоматическое закрытие задолженности.")
+    c.setFillColor(TEXT); c.setFont("Body", 7.8); c.drawString(x + 14, y - 32, "Этап 2.0 принят после новой Windows x64 сборки и теста desktop -> Toshiba.")
     c.showPage()
 
 
