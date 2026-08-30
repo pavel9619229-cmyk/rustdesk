@@ -76,3 +76,19 @@
 7. Погашение возвращает расчётный статус `current`.
 8. HTTP status API отвечает фактическим серверным состоянием.
 9. Миграция сохраняет access grant этапа 1.
+
+## Production-проверка
+
+Дата: 30.08.2026.
+
+- Git checkpoint: `c9148e3f5`.
+- Python: 29 тестов, ошибок нет; runner завершился `STAGE_2_0=PASS`.
+- Production SHA-256 `masha_auth.py`:
+  `a26db5992d3c981cdcd9d75f9a8378caf80ec3da0c05486083d5565125df1949`.
+- Резервная копия до успешного обновления:
+  `/opt/masha-auth/backups/stage-2.0-before-20260830T142439Z`.
+- Живой HTTPS API: начальный доступ, T-10, блокировка после grace period и
+  доступ по `promo` при заблокированной постоплате — PASS.
+- Тестовый оператор и связанные записи удалены: `TEST_ROWS_REMAINING=0`.
+- После проверки `masha-auth.service=active`, активных lease — 0,
+  SQLite `integrity_check=ok`.
