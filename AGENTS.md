@@ -84,3 +84,22 @@ Then translate that source into the file's target language (infer the language f
 * Preserve placeholders (`{}`) and escape sequences (`\n`, `\"`) exactly as in the source.
 * Do not translate brand or technical tokens: `RustDesk`, `Socks5`, `TLS`, `UAC`, `Wayland`, `X11`, `TCP`, `UDP`, `2FA`, `RDP`, `D3D`, etc.
 * Copy URL values (e.g. `doc_*` keys) verbatim from `en.rs`.
+
+
+## Authoritative Storage and Checkpoints
+
+- The authoritative UDU project directory is `C:\Users\Server\Documents\UDU\` on the `server` device.
+- Before changing UDU, confirm that this is the active working directory.
+- By default, create and edit UDU files directly in this directory.
+- Do not postpone preservation until the end of a session; work may stop unexpectedly.
+- If a result is produced on `laptop` or `desktop`, copy it here immediately after each meaningful stage and verify the copy.
+- Save a checkpoint here after each meaningful stage and before long-running, risky, restart, or interruption-prone operations.
+- For coherent code changes, include an appropriate Git commit in the checkpoint.
+- Do not synchronize after every keystroke; synchronize after saving a complete file or meaningful result.
+- Only the version in this directory is authoritative.
+- After an interruption, inspect this directory first and resume from the latest verified checkpoint.
+
+## User interaction
+
+- Обращаться к пользователю только на «ты»; не использовать «вы» при прямом обращении.
+- Если у агента есть доступ к нужному файлу или среде проекта, изменения выполнять самостоятельно и не просить пользователя вручную вставлять код или заменять файлы.
