@@ -7,6 +7,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_hbb/common/widgets/connection_page_title.dart';
 import 'package:flutter_hbb/consts.dart';
+import 'package:flutter_hbb/desktop/widgets/access_payment_panel.dart';
 import 'package:flutter_hbb/desktop/widgets/popup_menu.dart';
 import 'package:flutter_hbb/models/state_model.dart';
 import 'package:get/get.dart';
@@ -309,11 +310,7 @@ class _ConnectionPageState extends State<ConnectionPage>
         Expanded(
             child: Column(
           children: [
-            Row(
-              children: [
-                Flexible(child: _buildRemoteIDTextField(context)),
-              ],
-            ).marginOnly(top: 22),
+            _buildTopCards(context).marginOnly(top: 22),
             SizedBox(height: 12),
             Divider().paddingOnly(right: 12),
             Expanded(child: PeerTabPage()),
@@ -323,6 +320,36 @@ class _ConnectionPageState extends State<ConnectionPage>
         if (!isOutgoingOnly) OnlineStatusWidget()
       ],
     );
+  }
+
+  Widget _buildTopCards(BuildContext context) {
+    return LayoutBuilder(builder: (context, constraints) {
+      final remoteIdCard = Align(
+        alignment: Alignment.topLeft,
+        child: _buildRemoteIDTextField(context),
+      );
+      final accessPaymentCard = MashaAccessPaymentPanel(
+        operatorIdLoader: () => bind.mainGetMyId(),
+      );
+      if (constraints.maxWidth >= 760) {
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            remoteIdCard,
+            const SizedBox(width: 12),
+            Expanded(child: accessPaymentCard),
+          ],
+        );
+      }
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          remoteIdCard,
+          const SizedBox(height: 12),
+          accessPaymentCard,
+        ],
+      );
+    });
   }
 
   /// Callback for the connect button.
@@ -346,7 +373,7 @@ class _ConnectionPageState extends State<ConnectionPage>
       padding: const EdgeInsets.fromLTRB(20, 24, 20, 22),
       decoration: BoxDecoration(
           borderRadius: const BorderRadius.all(Radius.circular(13)),
-          border: Border.all(color: Theme.of(context).colorScheme.background)),
+          border: Border.all(color: Theme.of(context).colorScheme.surface)),
       child: Ink(
         child: Column(
           children: [
