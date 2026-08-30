@@ -1,4 +1,4 @@
-# Masha Auth — этапы 1.1–1.7
+# Masha Auth — этапы 1.1–2.0
 
 Production-совместимый Python-сервис авторизации сеанса:
 
@@ -84,6 +84,42 @@ heartbeat/finish возвращают уже сохранённый резуль
 `max_concurrent_sessions` (по умолчанию 1). Проверка и создание lease
 выполняются в одной блокирующей транзакции.
 
+## Серверная постоплата (этап 2.0)
+
+Постоплата включается оператору отдельной политикой и grant
+`postpaid_account`. Существующие операторы и grant этапа 1 при обновлении
+не меняются и автоматически на постоплату не переводятся.
+
+Базовая политика `postpaid-default` задаёт:
+
+- тариф `100` копеек за `3600` секунд подтверждённой активности — ровно
+  `1 ₽/час` без вычислений с плавающей точкой;
+- срок оплаты 24 часа после появления первого начисления;
+- grace period 1 час после срока оплаты;
+- серверное предупреждение за 600 секунд до блокировки;
+- один одновременный сеанс.
+
+Все параметры политики хранятся на сервере и меняются административной
+командой. Длительность берётся только из `usage_sessions`: от серверного
+`start` до `finish` либо до серверного закрытия после потери heartbeat.
+Повторные heartbeat и finish учитывают лишь ещё не записанную разницу и не
+создают повторный долг.
+
+Состояния расчёта: `current`, `payment_due`, `overdue`, `blocked`. После
+окончания grace period новый сеанс по postpaid grant отклоняется с
+`payment_required`. Действующие `ad_reward`, `promo` и `admin` grant имеют
+приоритет и сохраняют доступ независимо от долга.
+
+Текущее серверное решение доступно через:
+
+```text
+GET /v1/access/status?operator_id=OPERATOR_ID
+```
+
+Ответ содержит итоговый `allowed`, причину, выбранный grant, сумму долга в
+копейках, срок оплаты, конец grace period, момент предупреждения,
+`warning_10_minutes` и число секунд до блокировки.
+
 ## Автоматическая приёмка (этап 1.7)
 
 Сценарии Active, blocked/expired, fail-closed, Direct IP, replay, wrong binding,
@@ -97,6 +133,16 @@ powershell -ExecutionPolicy Bypass -File .\test-stage-1.7.ps1
 Скрипт запускает Python service tests и Rust release tests настоящего UDU crate,
 проверяет наличие свидетельства каждого из 12 сценариев и завершает работу
 с `STAGE_1_7=PASS` только после успешного прохождения всех проверок.
+
+Для этапа 2.0 отдельный скрипт проверяет точный тариф, идемпотентность,
+серверное закрытие по heartbeat, предупреждение T-10, блокировку,
+альтернативные grant, погашение долга, HTTP status API и безопасную миграцию:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\test-stage-2.0.ps1
+```
+
+Успешная приёмка завершается строкой `STAGE_2_0=PASS`.
 
 ## Управление операторами
 
@@ -113,6 +159,10 @@ python3 masha_auth.py admin grant OPERATOR_ID --source promo --expires-at 2026-1
 python3 masha_auth.py admin grant OPERATOR_ID --source ad_reward --grant-kind time_credit --quota-seconds 1800 --source-id EVENT_ID
 python3 masha_auth.py admin revoke-grant GRANT_ID
 python3 masha_auth.py admin billing OPERATOR_ID --billing-status overdue
+python3 masha_auth.py admin postpaid OPERATOR_ID
+python3 masha_auth.py admin access-status OPERATOR_ID
+python3 masha_auth.py admin settle OPERATOR_ID
+python3 masha_auth.py admin policy postpaid-default --rate-minor-per-hour 100 --payment-due-seconds 86400 --grace-seconds 3600 --warning-seconds 600 --max-sessions 1
 python3 masha_auth.py admin usage OPERATOR_ID
 python3 masha_auth.py admin concurrency 2
 ```

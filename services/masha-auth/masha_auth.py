@@ -4,6 +4,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
@@ -14,6 +15,11 @@ KEY=Path(os.getenv('MASHA_AUTH_SIGNING_KEY',str(SECRETS/'signing_key.pem')))
 PUB64=BASE/'public_key.b64'; PUBPEM=BASE/'public_key.pem'
 DEFAULT_TTL=120; MAX_BODY=16384
 LEASE_HEARTBEAT_SECONDS=10; LEASE_GRACE_SECONDS=30
+DEFAULT_POSTPAID_POLICY='postpaid-default'
+POSTPAID_RATE_MINOR_PER_HOUR=100
+POSTPAID_DUE_SECONDS=86400
+POSTPAID_GRACE_SECONDS=3600
+POSTPAID_WARNING_SECONDS=600
 logging.basicConfig(level=logging.INFO,format='%(asctime)s %(levelname)s %(message)s')
 LOG=logging.getLogger('masha-auth')
 
@@ -31,8 +37,31 @@ def dbc():
     finally:
         c.close()
 
+def table_columns(c,table):
+    return {r['name'] for r in c.execute(f'PRAGMA table_info({table})')}
+
+def create_access_grants(c):
+    c.execute("CREATE TABLE IF NOT EXISTS access_grants(grant_id TEXT PRIMARY KEY,operator_id TEXT NOT NULL,source_type TEXT NOT NULL CHECK(source_type IN ('payment','ad_reward','trial','promo','admin','postpaid_account')),grant_kind TEXT NOT NULL CHECK(grant_kind IN ('time_credit','unlimited_period','postpaid_account')),quota_seconds INTEGER,starts_at INTEGER NOT NULL,expires_at INTEGER,status TEXT NOT NULL CHECK(status IN ('active','consumed','expired','revoked')),priority INTEGER NOT NULL DEFAULT 100,source_id TEXT,metadata_json TEXT,created_at INTEGER NOT NULL)")
+
+def ensure_access_grants_schema(c):
+    schema=c.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='access_grants'").fetchone()
+    if not schema:
+        create_access_grants(c)
+        return
+    if 'postpaid_account' in (schema['sql'] or '') and 'metadata_json' in table_columns(c,'access_grants'):
+        return
+    c.execute('DROP INDEX IF EXISTS idx_access_grants_operator')
+    c.execute('DROP INDEX IF EXISTS idx_access_grants_source_event')
+    c.execute('ALTER TABLE access_grants RENAME TO access_grants_stage1')
+    create_access_grants(c)
+    old_columns=table_columns(c,'access_grants_stage1')
+    metadata='metadata_json' if 'metadata_json' in old_columns else 'NULL'
+    c.execute(f"INSERT INTO access_grants(grant_id,operator_id,source_type,grant_kind,quota_seconds,starts_at,expires_at,status,priority,source_id,metadata_json,created_at) SELECT grant_id,operator_id,source_type,grant_kind,quota_seconds,starts_at,expires_at,status,priority,source_id,{metadata},created_at FROM access_grants_stage1")
+    c.execute('DROP TABLE access_grants_stage1')
+
 def init_db():
     with dbc() as c:
+        now=int(time.time())
         c.execute('CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT NOT NULL)')
         c.execute("CREATE TABLE IF NOT EXISTS operators(operator_id TEXT PRIMARY KEY,access_status TEXT NOT NULL CHECK(access_status IN ('active','blocked')),note TEXT NOT NULL DEFAULT '',updated_at INTEGER NOT NULL)")
         columns={r['name'] for r in c.execute('PRAGMA table_info(operators)')}
@@ -42,10 +71,18 @@ def init_db():
         c.execute("INSERT OR IGNORE INTO settings VALUES('ticket_ttl_seconds',?)",(str(DEFAULT_TTL),))
         c.execute("INSERT OR IGNORE INTO settings VALUES('max_concurrent_sessions','1')")
         c.execute("CREATE TABLE IF NOT EXISTS leases(lease_id TEXT PRIMARY KEY,jti TEXT NOT NULL UNIQUE,token_hash TEXT NOT NULL,operator_id TEXT NOT NULL,target_id TEXT NOT NULL,session_id TEXT NOT NULL,connection_type TEXT NOT NULL,started_at INTEGER NOT NULL,last_heartbeat INTEGER NOT NULL,finished_at INTEGER,finish_reason TEXT NOT NULL DEFAULT '',duration_seconds INTEGER)")
-        c.execute("CREATE TABLE IF NOT EXISTS access_grants(grant_id TEXT PRIMARY KEY,operator_id TEXT NOT NULL,source_type TEXT NOT NULL CHECK(source_type IN ('payment','ad_reward','trial','promo','admin')),grant_kind TEXT NOT NULL CHECK(grant_kind IN ('time_credit','unlimited_period')),quota_seconds INTEGER,starts_at INTEGER NOT NULL,expires_at INTEGER,status TEXT NOT NULL CHECK(status IN ('active','consumed','expired','revoked')),priority INTEGER NOT NULL DEFAULT 100,source_id TEXT,created_at INTEGER NOT NULL)")
+        ensure_access_grants_schema(c)
         c.execute('CREATE INDEX IF NOT EXISTS idx_access_grants_operator ON access_grants(operator_id,status,starts_at,expires_at)')
         c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_access_grants_source_event ON access_grants(source_type,source_id) WHERE source_id IS NOT NULL AND source_id!='legacy-operator'")
-        c.execute("CREATE TABLE IF NOT EXISTS billing_accounts(operator_id TEXT PRIMARY KEY,billing_status TEXT NOT NULL CHECK(billing_status IN ('current','payment_due','overdue','blocked')),updated_at INTEGER NOT NULL)")
+        c.execute("CREATE TABLE IF NOT EXISTS billing_accounts(operator_id TEXT PRIMARY KEY,billing_status TEXT NOT NULL CHECK(billing_status IN ('current','payment_due','overdue','blocked')),amount_due_minor INTEGER NOT NULL DEFAULT 0,currency TEXT NOT NULL DEFAULT 'RUB',billable_seconds INTEGER NOT NULL DEFAULT 0,due_at INTEGER,grace_until INTEGER,blocked_at INTEGER,updated_at INTEGER NOT NULL)")
+        billing_columns=table_columns(c,'billing_accounts')
+        billing_additions=(('amount_due_minor','INTEGER NOT NULL DEFAULT 0'),('currency',"TEXT NOT NULL DEFAULT 'RUB'"),('billable_seconds','INTEGER NOT NULL DEFAULT 0'),('due_at','INTEGER'),('grace_until','INTEGER'),('blocked_at','INTEGER'))
+        for column,declaration in billing_additions:
+            if column not in billing_columns:
+                c.execute(f'ALTER TABLE billing_accounts ADD COLUMN {column} {declaration}')
+        c.execute("CREATE TABLE IF NOT EXISTS access_policies(policy_id TEXT PRIMARY KEY,name TEXT NOT NULL,mode TEXT NOT NULL CHECK(mode IN ('postpaid','prepaid_time','hybrid','free')),rate_minor_per_hour INTEGER NOT NULL DEFAULT 100,currency TEXT NOT NULL DEFAULT 'RUB',max_concurrent_sessions INTEGER NOT NULL DEFAULT 1,payment_due_seconds INTEGER NOT NULL DEFAULT 86400,grace_seconds INTEGER NOT NULL DEFAULT 3600,warning_seconds INTEGER NOT NULL DEFAULT 600,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL)")
+        c.execute("CREATE TABLE IF NOT EXISTS operator_access_policy(operator_id TEXT PRIMARY KEY,policy_id TEXT NOT NULL,valid_from INTEGER,valid_until INTEGER,override_json TEXT)")
+        c.execute("INSERT OR IGNORE INTO access_policies(policy_id,name,mode,rate_minor_per_hour,currency,max_concurrent_sessions,payment_due_seconds,grace_seconds,warning_seconds,created_at,updated_at) VALUES(?,?,'postpaid',?,'RUB',1,?,?,?,?,?)",(DEFAULT_POSTPAID_POLICY,'Постоплата 1 рубль в час',POSTPAID_RATE_MINOR_PER_HOUR,POSTPAID_DUE_SECONDS,POSTPAID_GRACE_SECONDS,POSTPAID_WARNING_SECONDS,now,now))
         lease_columns={r['name'] for r in c.execute('PRAGMA table_info(leases)')}
         if 'grant_id' not in lease_columns:
             c.execute('ALTER TABLE leases ADD COLUMN grant_id TEXT')
@@ -56,7 +93,6 @@ def init_db():
         c.execute("CREATE TABLE IF NOT EXISTS grant_consumption(consumption_id TEXT PRIMARY KEY,grant_id TEXT NOT NULL,lease_id TEXT NOT NULL UNIQUE,session_id TEXT NOT NULL,seconds INTEGER NOT NULL CHECK(seconds>=0),idempotency_key TEXT NOT NULL UNIQUE,recorded_at INTEGER NOT NULL,updated_at INTEGER NOT NULL)")
         c.execute('CREATE INDEX IF NOT EXISTS idx_grant_consumption_grant ON grant_consumption(grant_id)')
         c.execute("INSERT OR IGNORE INTO usage_sessions(usage_id,lease_id,session_id,operator_id,target_id,ticket_jti,grant_id,started_at,last_heartbeat_at,ended_at,duration_seconds,accounted_seconds,close_reason) SELECT lease_id,lease_id,session_id,operator_id,target_id,jti,grant_id,started_at,last_heartbeat,finished_at,COALESCE(duration_seconds,0),COALESCE(duration_seconds,0),finish_reason FROM leases")
-        now=int(time.time())
         for row in c.execute("SELECT operator_id,valid_until FROM operators o WHERE access_status='active' AND NOT EXISTS(SELECT 1 FROM access_grants g WHERE g.operator_id=o.operator_id)").fetchall():
             grant_id='legacy-admin:'+row['operator_id']
             c.execute("INSERT OR IGNORE INTO access_grants(grant_id,operator_id,source_type,grant_kind,starts_at,expires_at,status,priority,source_id,created_at) VALUES(?,?,?,'unlimited_period',?,?,'active',10,'legacy-operator',?)",(grant_id,row['operator_id'],'admin',now,row['valid_until'],now))
@@ -113,7 +149,90 @@ def set_grant(operator_id,source_type,grant_kind='unlimited_period',quota_second
 def set_billing(operator_id,status):
     if status not in ('current','payment_due','overdue','blocked'): raise ValueError('invalid billing status')
     with dbc() as c:
-        c.execute('INSERT INTO billing_accounts(operator_id,billing_status,updated_at) VALUES(?,?,?) ON CONFLICT(operator_id) DO UPDATE SET billing_status=excluded.billing_status,updated_at=excluded.updated_at',(operator_id,status,int(time.time())))
+        now=int(time.time())
+        blocked_at=now if status=='blocked' else None
+        c.execute('INSERT INTO billing_accounts(operator_id,billing_status,blocked_at,updated_at) VALUES(?,?,?,?) ON CONFLICT(operator_id) DO UPDATE SET billing_status=excluded.billing_status,blocked_at=excluded.blocked_at,updated_at=excluded.updated_at',(operator_id,status,blocked_at,now))
+
+def set_postpaid_policy(policy_id=DEFAULT_POSTPAID_POLICY,rate_minor_per_hour=POSTPAID_RATE_MINOR_PER_HOUR,payment_due_seconds=POSTPAID_DUE_SECONDS,grace_seconds=POSTPAID_GRACE_SECONDS,warning_seconds=POSTPAID_WARNING_SECONDS,max_concurrent_sessions=1):
+    values=(int(rate_minor_per_hour),int(payment_due_seconds),int(grace_seconds),int(warning_seconds),int(max_concurrent_sessions))
+    if values[0]<=0: raise ValueError('rate_minor_per_hour must be positive')
+    if min(values[1:4])<0: raise ValueError('billing intervals must be non-negative')
+    if values[3]>values[1]+values[2]: raise ValueError('warning_seconds exceeds time to block')
+    if values[4]<1 or values[4]>100: raise ValueError('max_concurrent_sessions must be 1..100')
+    now=int(time.time())
+    with dbc() as c:
+        c.execute("INSERT INTO access_policies(policy_id,name,mode,rate_minor_per_hour,currency,max_concurrent_sessions,payment_due_seconds,grace_seconds,warning_seconds,created_at,updated_at) VALUES(?,?,'postpaid',?,'RUB',?,?,?,?,?,?) ON CONFLICT(policy_id) DO UPDATE SET rate_minor_per_hour=excluded.rate_minor_per_hour,max_concurrent_sessions=excluded.max_concurrent_sessions,payment_due_seconds=excluded.payment_due_seconds,grace_seconds=excluded.grace_seconds,warning_seconds=excluded.warning_seconds,updated_at=excluded.updated_at",(policy_id,'Постоплата',values[0],values[4],values[1],values[2],values[3],now,now))
+
+def enable_postpaid(operator_id,policy_id=DEFAULT_POSTPAID_POLICY):
+    if not operator_id: raise ValueError('operator_id required')
+    now=int(time.time()); grant_id='postpaid:'+operator_id
+    with dbc() as c:
+        c.execute('BEGIN IMMEDIATE')
+        policy=c.execute("SELECT policy_id FROM access_policies WHERE policy_id=? AND mode IN ('postpaid','hybrid')",(policy_id,)).fetchone()
+        if not policy: raise ValueError('postpaid policy not found')
+        c.execute("INSERT OR IGNORE INTO operators(operator_id,access_status,note,updated_at,valid_until) VALUES(?,'active','postpaid account',?,NULL)",(operator_id,now))
+        c.execute("UPDATE access_grants SET status='revoked' WHERE grant_id=? AND status='active'",('legacy-admin:'+operator_id,))
+        c.execute("INSERT INTO operator_access_policy(operator_id,policy_id,valid_from,valid_until,override_json) VALUES(?,?,?,NULL,NULL) ON CONFLICT(operator_id) DO UPDATE SET policy_id=excluded.policy_id,valid_from=excluded.valid_from,valid_until=NULL,override_json=NULL",(operator_id,policy_id,now))
+        c.execute("INSERT OR IGNORE INTO billing_accounts(operator_id,billing_status,amount_due_minor,currency,billable_seconds,updated_at) VALUES(?,'current',0,'RUB',0,?)",(operator_id,now))
+        metadata=json.dumps({'policy_id':policy_id},sort_keys=True,separators=(',',':'))
+        c.execute("INSERT INTO access_grants(grant_id,operator_id,source_type,grant_kind,quota_seconds,starts_at,expires_at,status,priority,source_id,metadata_json,created_at) VALUES(?,?,?,'postpaid_account',NULL,?,NULL,'active',500,?,?,?) ON CONFLICT(grant_id) DO UPDATE SET starts_at=excluded.starts_at,status='active',metadata_json=excluded.metadata_json",(grant_id,operator_id,'postpaid_account',now,'postpaid-account:'+operator_id,metadata,now))
+    return grant_id
+
+def settle_postpaid(operator_id):
+    now=int(time.time())
+    with dbc() as c:
+        changed=c.execute("UPDATE billing_accounts SET billing_status='current',amount_due_minor=0,billable_seconds=0,due_at=NULL,grace_until=NULL,blocked_at=NULL,updated_at=? WHERE operator_id=?",(now,operator_id)).rowcount
+    return bool(changed)
+
+def policy_for_operator(c,operator_id,now):
+    return c.execute("SELECT p.* FROM operator_access_policy op JOIN access_policies p ON p.policy_id=op.policy_id WHERE op.operator_id=? AND (op.valid_from IS NULL OR op.valid_from<=?) AND (op.valid_until IS NULL OR op.valid_until>?)",(operator_id,now,now)).fetchone()
+
+def refresh_billing_account(c,operator_id,now):
+    account=c.execute('SELECT * FROM billing_accounts WHERE operator_id=?',(operator_id,)).fetchone()
+    if not account: return None
+    status=account['billing_status']; blocked_at=account['blocked_at']
+    if int(account['amount_due_minor'] or 0)<=0 and status!='blocked':
+        status='current'
+    elif status!='blocked' and account['grace_until'] is not None and int(account['grace_until'])<=now:
+        status='blocked'; blocked_at=now
+    elif status!='blocked' and account['due_at'] is not None and int(account['due_at'])<=now:
+        status='overdue'
+    elif status not in ('blocked','overdue'):
+        status='payment_due'
+    if status!=account['billing_status'] or blocked_at!=account['blocked_at']:
+        c.execute('UPDATE billing_accounts SET billing_status=?,blocked_at=?,updated_at=? WHERE operator_id=?',(status,blocked_at,now,operator_id))
+        account=c.execute('SELECT * FROM billing_accounts WHERE operator_id=?',(operator_id,)).fetchone()
+    return account
+
+def accrue_postpaid(c,operator_id,seconds,now):
+    seconds=max(0,int(seconds))
+    policy=policy_for_operator(c,operator_id,now)
+    if not policy: raise ValueError('postpaid policy missing')
+    c.execute("INSERT OR IGNORE INTO billing_accounts(operator_id,billing_status,amount_due_minor,currency,billable_seconds,updated_at) VALUES(?,'current',0,?,0,?)",(operator_id,policy['currency'],now))
+    account=c.execute('SELECT * FROM billing_accounts WHERE operator_id=?',(operator_id,)).fetchone()
+    total_seconds=int(account['billable_seconds'] or 0)+seconds
+    amount_due=total_seconds*int(policy['rate_minor_per_hour'])//3600
+    due_at=account['due_at']; grace_until=account['grace_until']; status=account['billing_status']
+    if amount_due>0 and due_at is None:
+        due_at=now+int(policy['payment_due_seconds'])
+        grace_until=due_at+int(policy['grace_seconds'])
+        status='payment_due'
+    c.execute('UPDATE billing_accounts SET billing_status=?,amount_due_minor=?,currency=?,billable_seconds=?,due_at=?,grace_until=?,updated_at=? WHERE operator_id=?',(status,amount_due,policy['currency'],total_seconds,due_at,grace_until,now,operator_id))
+    return refresh_billing_account(c,operator_id,now)
+
+def access_status(operator_id,now=None):
+    now=int(time.time()) if now is None else int(now)
+    with dbc() as c:
+        grant,reason=entitlement(c,operator_id,now)
+        policy=policy_for_operator(c,operator_id,now)
+        account=refresh_billing_account(c,operator_id,now)
+        balance=c.execute("SELECT COALESCE(SUM(quota_seconds),0) AS balance FROM access_grants WHERE operator_id=? AND status='active' AND grant_kind='time_credit' AND starts_at<=? AND (expires_at IS NULL OR expires_at>?)",(operator_id,now,now)).fetchone()['balance']
+        seconds_until_block=None; warning=False; warning_at=None
+        if policy and account and account['grace_until'] is not None:
+            seconds_until_block=max(0,int(account['grace_until'])-now)
+            warning_at=int(account['grace_until'])-int(policy['warning_seconds'])
+            warning=account['billing_status']!='blocked' and seconds_until_block<=int(policy['warning_seconds'])
+        return {'allowed':reason is None,'reason':'allowed' if reason is None else reason,'policy_mode':policy['mode'] if policy else None,'grant_id':grant['grant_id'] if grant else None,'grant_source':grant['source_type'] if grant else None,'balance_seconds':int(balance or 0),'valid_until':grant['expires_at'] if grant else None,'billing_status':account['billing_status'] if account else None,'amount_due_minor':int(account['amount_due_minor'] or 0) if account else 0,'currency':account['currency'] if account else 'RUB','due_at':account['due_at'] if account else None,'grace_until':account['grace_until'] if account else None,'blocked_at':account['blocked_at'] if account else None,'warning_at':warning_at,'warning_10_minutes':warning,'seconds_until_block':seconds_until_block,'rate_minor_per_hour':int(policy['rate_minor_per_hour']) if policy else None,'server_time':now}
 
 def authorize(k,req):
     for f in ('operator_id','target_id','session_id','connection_type','client_version'):
@@ -157,13 +276,34 @@ def entitlement(c,operator_id,now):
     row=c.execute('SELECT access_status,valid_until FROM operators WHERE operator_id=?',(operator_id,)).fetchone()
     if row and row['access_status']=='blocked': return None,'operator_blocked'
     c.execute("UPDATE access_grants SET status='expired' WHERE operator_id=? AND status='active' AND expires_at IS NOT NULL AND expires_at<=?",(operator_id,now))
-    grant=c.execute("SELECT grant_id,source_type,grant_kind,quota_seconds,expires_at FROM access_grants WHERE operator_id=? AND status='active' AND starts_at<=? AND (expires_at IS NULL OR expires_at>?) AND (grant_kind='unlimited_period' OR quota_seconds>0) ORDER BY priority,expires_at IS NULL,expires_at,created_at LIMIT 1",(operator_id,now,now)).fetchone()
-    if grant: return grant,None
+    grants=c.execute("SELECT grant_id,source_type,grant_kind,quota_seconds,expires_at FROM access_grants WHERE operator_id=? AND status='active' AND starts_at<=? AND (expires_at IS NULL OR expires_at>?) AND (grant_kind IN ('unlimited_period','postpaid_account') OR quota_seconds>0) ORDER BY priority,expires_at IS NULL,expires_at,created_at",(operator_id,now,now)).fetchall()
+    postpaid_blocked=False
+    for grant in grants:
+        if grant['grant_kind']=='postpaid_account':
+            policy=policy_for_operator(c,operator_id,now)
+            account=refresh_billing_account(c,operator_id,now)
+            if not policy or policy['mode'] not in ('postpaid','hybrid'):
+                continue
+            if account and account['billing_status']=='blocked':
+                postpaid_blocked=True
+                continue
+        return grant,None
     if not row: return None,'operator_unknown'
     if row['valid_until'] is not None and int(row['valid_until'])<=now: return None,'operator_expired'
+    if postpaid_blocked: return None,'payment_required'
     billing=c.execute('SELECT billing_status FROM billing_accounts WHERE operator_id=?',(operator_id,)).fetchone()
     if billing and billing['billing_status'] in ('payment_due','overdue','blocked'): return None,'payment_required'
     return None,'no_active_grant'
+
+def ticket_grant(c,claims,now):
+    grant=c.execute("SELECT grant_id,source_type,grant_kind FROM access_grants WHERE grant_id=? AND operator_id=? AND source_type=? AND status='active' AND starts_at<=? AND (expires_at IS NULL OR expires_at>?) AND (grant_kind IN ('unlimited_period','postpaid_account') OR quota_seconds>0)",(claims['grant_id'],claims['operator_id'],claims['grant_source'],now,now)).fetchone()
+    if not grant: return None
+    if grant['grant_kind']=='postpaid_account':
+        policy=policy_for_operator(c,claims['operator_id'],now)
+        account=refresh_billing_account(c,claims['operator_id'],now)
+        if not policy or policy['mode'] not in ('postpaid','hybrid') or (account and account['billing_status']=='blocked'):
+            return None
+    return grant
 
 def operator_reason(c,operator_id,now):
     return entitlement(c,operator_id,now)[1]
@@ -179,6 +319,11 @@ def account_usage(c,lease,account_at):
     if delta==0:
         exhausted=bool(grant and grant['grant_kind']=='time_credit' and int(grant['quota_seconds'] or 0)<=0)
         return accounted,exhausted
+    if grant and grant['grant_kind']=='postpaid_account':
+        new_accounted=accounted+delta
+        accrue_postpaid(c,usage['operator_id'],delta,int(account_at))
+        c.execute('UPDATE usage_sessions SET duration_seconds=?,accounted_seconds=? WHERE lease_id=?',(new_accounted,new_accounted,lease['lease_id']))
+        return new_accounted,False
     consumed=delta; exhausted=False
     if grant and grant['grant_kind']=='time_credit':
         available=max(0,int(grant['quota_seconds'] or 0))
@@ -230,13 +375,14 @@ def lease_start(k,req):
         finish_stale(c,now)
         reason=operator_reason(c,claims['operator_id'],now)
         if reason: return False,reason,{}
-        grant=c.execute("SELECT grant_id,source_type FROM access_grants WHERE grant_id=? AND operator_id=? AND source_type=? AND status='active' AND starts_at<=? AND (expires_at IS NULL OR expires_at>?) AND (grant_kind='unlimited_period' OR quota_seconds>0)",(claims['grant_id'],claims['operator_id'],claims['grant_source'],now,now)).fetchone()
+        grant=ticket_grant(c,claims,now)
         if not grant: return False,'grant_inactive',{}
         existing=c.execute('SELECT lease_id FROM leases WHERE jti=?',(claims['jti'],)).fetchone()
         if existing: return False,'ticket_replayed',{}
         existing=c.execute('SELECT lease_id FROM usage_sessions WHERE operator_id=? AND session_id=?',(claims['operator_id'],claims['session_id'])).fetchone()
         if existing: return False,'session_replayed',{}
-        try: max_sessions=int(setting(c,'max_concurrent_sessions','1'))
+        policy=policy_for_operator(c,claims['operator_id'],now)
+        try: max_sessions=int(policy['max_concurrent_sessions']) if policy else int(setting(c,'max_concurrent_sessions','1'))
         except ValueError: max_sessions=1
         max_sessions=max(1,min(max_sessions,100))
         active_count=c.execute('SELECT count(*) FROM leases WHERE operator_id=? AND finished_at IS NULL',(claims['operator_id'],)).fetchone()[0]
@@ -278,7 +424,7 @@ def lease_action(req,finish=False):
     return True,'allowed',{'server_time':now,'duration_seconds':duration,'grace_seconds':LEASE_GRACE_SECONDS}
 
 class Handler(BaseHTTPRequestHandler):
-    server_version='MashaAuth/1'; sys_version=''
+    server_version='MashaAuth/2'; sys_version=''
     def log_message(self,fmt,*args): LOG.info('%s %s',self.client_address[0],fmt%args)
     def sendj(self,code,obj):
         b=json.dumps(obj,separators=(',',':'),ensure_ascii=False).encode()
@@ -287,8 +433,16 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers(); self.wfile.write(b)
 
     def do_GET(self):
-        if self.path=='/health': self.sendj(200,{'status':'ok','service':'masha-auth','version':1})
-        else: self.sendj(404,{'error':'not_found'})
+        parsed=urlparse(self.path)
+        if parsed.path=='/health':
+            self.sendj(200,{'status':'ok','service':'masha-auth','version':2})
+        elif parsed.path=='/v1/access/status':
+            operator_id=parse_qs(parsed.query).get('operator_id',[''])[0].strip()
+            if not operator_id or len(operator_id)>256:
+                return self.sendj(400,{'allowed':False,'reason':'invalid_request'})
+            self.sendj(200,access_status(operator_id))
+        else:
+            self.sendj(404,{'error':'not_found'})
     def do_POST(self):
         paths=('/v1/session/authorize','/v1/session/lease/start','/v1/session/lease/heartbeat','/v1/session/lease/finish')
         if self.path not in paths: return self.sendj(404,{'error':'not_found'})
@@ -349,8 +503,12 @@ def admin(a):
                 print(f"operator\t{r['operator_id']}\t{r['access_status']}\t{r['note']}\t{r['updated_at']}\t{valid_until}")
             for r in c.execute('SELECT grant_id,operator_id,source_type,grant_kind,quota_seconds,expires_at,status FROM access_grants ORDER BY operator_id,created_at'):
                 print(f"grant\t{r['grant_id']}\t{r['operator_id']}\t{r['source_type']}\t{r['grant_kind']}\t{r['quota_seconds']}\t{r['expires_at']}\t{r['status']}")
-            for r in c.execute('SELECT operator_id,billing_status,updated_at FROM billing_accounts ORDER BY operator_id'):
-                print(f"billing\t{r['operator_id']}\t{r['billing_status']}\t{r['updated_at']}")
+            for r in c.execute('SELECT policy_id,mode,rate_minor_per_hour,currency,max_concurrent_sessions,payment_due_seconds,grace_seconds,warning_seconds FROM access_policies ORDER BY policy_id'):
+                print(f"policy\t{r['policy_id']}\t{r['mode']}\t{r['rate_minor_per_hour']}\t{r['currency']}\t{r['max_concurrent_sessions']}\t{r['payment_due_seconds']}\t{r['grace_seconds']}\t{r['warning_seconds']}")
+            for r in c.execute('SELECT operator_id,policy_id,valid_from,valid_until FROM operator_access_policy ORDER BY operator_id'):
+                print(f"operator_policy\t{r['operator_id']}\t{r['policy_id']}\t{r['valid_from']}\t{r['valid_until']}")
+            for r in c.execute('SELECT operator_id,billing_status,amount_due_minor,currency,billable_seconds,due_at,grace_until,blocked_at,updated_at FROM billing_accounts ORDER BY operator_id'):
+                print(f"billing\t{r['operator_id']}\t{r['billing_status']}\t{r['amount_due_minor']}\t{r['currency']}\t{r['billable_seconds']}\t{r['due_at']}\t{r['grace_until']}\t{r['blocked_at']}\t{r['updated_at']}")
         print('public_key_b64='+PUB64.read_text().strip())
     elif a.action in ('allow','block','expire'):
         if not a.value: raise SystemExit('operator id required')
@@ -366,6 +524,7 @@ def admin(a):
         with dbc() as c:
             c.execute("UPDATE access_grants SET status='revoked' WHERE operator_id=? AND status='active'",(a.value,))
             c.execute('DELETE FROM billing_accounts WHERE operator_id=?',(a.value,))
+            c.execute('DELETE FROM operator_access_policy WHERE operator_id=?',(a.value,))
             c.execute('DELETE FROM operators WHERE operator_id=?',(a.value,))
         print('ok')
     elif a.action=='grant':
@@ -383,6 +542,19 @@ def admin(a):
         if not a.value: raise SystemExit('operator id required')
         if not a.billing_status: raise SystemExit('--billing-status required')
         set_billing(a.value,a.billing_status); print('ok')
+    elif a.action=='postpaid':
+        if not a.value: raise SystemExit('operator id required')
+        print('grant_id='+enable_postpaid(a.value,a.policy_id))
+    elif a.action=='settle':
+        if not a.value: raise SystemExit('operator id required')
+        print('ok' if settle_postpaid(a.value) else 'not_found')
+    elif a.action=='access-status':
+        if not a.value: raise SystemExit('operator id required')
+        print(json.dumps(access_status(a.value),ensure_ascii=False,sort_keys=True))
+    elif a.action=='policy':
+        policy_id=a.value or DEFAULT_POSTPAID_POLICY
+        set_postpaid_policy(policy_id,a.rate_minor_per_hour,a.payment_due_seconds,a.grace_seconds,a.warning_seconds,a.max_sessions)
+        print('ok')
     elif a.action=='usage':
         with dbc() as c:
             if a.value:
@@ -409,7 +581,7 @@ def admin(a):
 
 def main():
     p=argparse.ArgumentParser(); sp=p.add_subparsers(dest='cmd',required=True); sp.add_parser('serve')
-    ap=sp.add_parser('admin'); ap.add_argument('action',choices=['status','allow','block','expire','remove','grant','revoke-grant','billing','usage','global','ttl','concurrency']); ap.add_argument('value',nargs='?'); ap.add_argument('--note',default=''); ap.add_argument('--valid-until'); ap.add_argument('--source',choices=['payment','ad_reward','trial','promo','admin']); ap.add_argument('--grant-kind',choices=['time_credit','unlimited_period'],default='unlimited_period'); ap.add_argument('--quota-seconds',type=int); ap.add_argument('--expires-at'); ap.add_argument('--source-id'); ap.add_argument('--priority',type=int,default=100); ap.add_argument('--billing-status',choices=['current','payment_due','overdue','blocked'])
+    ap=sp.add_parser('admin'); ap.add_argument('action',choices=['status','allow','block','expire','remove','grant','revoke-grant','billing','postpaid','settle','access-status','policy','usage','global','ttl','concurrency']); ap.add_argument('value',nargs='?'); ap.add_argument('--note',default=''); ap.add_argument('--valid-until'); ap.add_argument('--source',choices=['payment','ad_reward','trial','promo','admin']); ap.add_argument('--grant-kind',choices=['time_credit','unlimited_period'],default='unlimited_period'); ap.add_argument('--quota-seconds',type=int); ap.add_argument('--expires-at'); ap.add_argument('--source-id'); ap.add_argument('--priority',type=int,default=100); ap.add_argument('--billing-status',choices=['current','payment_due','overdue','blocked']); ap.add_argument('--policy-id',default=DEFAULT_POSTPAID_POLICY); ap.add_argument('--rate-minor-per-hour',type=int,default=POSTPAID_RATE_MINOR_PER_HOUR); ap.add_argument('--payment-due-seconds',type=int,default=POSTPAID_DUE_SECONDS); ap.add_argument('--grace-seconds',type=int,default=POSTPAID_GRACE_SECONDS); ap.add_argument('--warning-seconds',type=int,default=POSTPAID_WARNING_SECONDS); ap.add_argument('--max-sessions',type=int,default=1)
     a=p.parse_args(); serve() if a.cmd=='serve' else admin(a)
 
 if __name__=='__main__': main()
