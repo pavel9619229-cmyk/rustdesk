@@ -356,7 +356,12 @@ class AuthorizeTests(unittest.TestCase):
             self.assertEqual(response.status, 200)
             self.assertTrue(status['allowed'])
             self.assertEqual(status['policy_mode'], 'postpaid')
+            self.assertEqual(status['policy_id'], 'postpaid-default')
             self.assertEqual(status['rate_minor_per_hour'], 100)
+            self.assertEqual(status['payment_due_seconds'], 86400)
+            self.assertEqual(status['grace_seconds'], 3600)
+            self.assertEqual(status['warning_seconds'], 600)
+            self.assertEqual(status['billable_seconds'], 0)
         finally:
             server.shutdown()
             server.server_close()
