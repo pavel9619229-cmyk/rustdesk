@@ -133,20 +133,23 @@ def header(c, section, title, dest, page_num, status="актуально на 30
     c.drawString(38, PAGE_H - 52, title)
     c.setFont("Body", 7.5)
     c.drawRightString(PAGE_W - 38, PAGE_H - 27, status)
-    bx, by, bw, bh = PAGE_W - 133, PAGE_H - 64, 95, 22
-    c.setFillColor(colors.white)
-    c.setStrokeColor(colors.white)
-    c.rect(bx, by, bw, bh, fill=1, stroke=0)
+    bar_y, bar_h = PAGE_H - 97, 25
+    c.setFillColor(PALE_BLUE)
+    c.rect(0, bar_y, PAGE_W, bar_h, fill=1, stroke=0)
+    c.setStrokeColor(BLUE)
+    c.setLineWidth(0.7)
+    c.line(0, bar_y, PAGE_W, bar_y)
     c.setFillColor(BLUE)
-    c.setFont("Body", 8)
-    c.drawCentredString(bx + bw / 2, by + 7, "В оглавление")
-    c.linkRect("", "toc", (bx, by, bx + bw, by + bh), relative=0, thickness=0)
+    c.setFont("BodyBold", 8.5)
+    c.drawCentredString(PAGE_W / 2, bar_y + 8, "В ОГЛАВЛЕНИЕ")
+    c.linkRect("", "toc", (0, bar_y, PAGE_W, bar_y + bar_h), relative=0, thickness=0)
     c.setStrokeColor(LINE)
     c.line(38, 27, PAGE_W - 38, 27)
     c.setFillColor(MUTED)
     c.setFont("Body", 7)
     c.drawString(38, 15, "Маша · UDU · технический план")
-    c.drawRightString(PAGE_W - 38, 15, f"{page_num}/7")
+    c.setFont("BodyBold", 7.5)
+    c.drawRightString(PAGE_W - 38, 15, f"Страница {page_num} из 7")
 
 
 def toc_subrow(c, x, y, width, label, page, dest):
@@ -204,6 +207,13 @@ def page_toc(c):
     toc_subrow(c, x + 10, top2 - 34, width - 20, "Этап 1: выполненные пункты 1.0-1.9", 5, "stage1")
     toc_subrow(c, x + 10, top2 - 64, width - 20, "Этап 1.9: приёмочные тесты и доказательства", 6, "stage19")
     toc_subrow(c, x + 10, top2 - 94, width - 20, "Этап 2: коммерциализация, пункты 2.0-2.6", 7, "stage2")
+    c.setStrokeColor(LINE)
+    c.line(24, 29, PAGE_W - 24, 29)
+    c.setFillColor(MUTED)
+    c.setFont("Body", 7)
+    c.drawString(24, 15, "Маша · UDU · технический план")
+    c.setFont("BodyBold", 7.5)
+    c.drawRightString(PAGE_W - 24, 15, "Страница 1 из 7")
     c.showPage()
 
 
@@ -212,7 +222,7 @@ def page_structure(c):
     header(c, "РАЗДЕЛ 2 · СТРУКТУРА И ТЕРМИНЫ", "Состав системы и основные термины", "structure", 2,
            outline="2. Структура и термины", level=0)
     c.addOutlineEntry("Состав системы и основные термины", "structure", level=1, closed=False)
-    x, width, y = 38, PAGE_W - 76, PAGE_H - 92
+    x, width, y = 38, PAGE_W - 76, PAGE_H - 112
 
     draw_box(c, x, y, width, 58, PALE_GREEN, GREEN)
     c.setFillColor(GREEN)
@@ -263,7 +273,7 @@ def page_authorization(c):
     c.setPageSize(A4)
     header(c, "РАЗДЕЛ 2 · СТРУКТУРА И ТЕРМИНЫ", "Авторизация и управление сеансом", "authorization", 3,
            outline="Авторизация и управление сеансом", level=1)
-    x, width, y = 38, PAGE_W - 76, PAGE_H - 98
+    x, width, y = 38, PAGE_W - 76, PAGE_H - 112
     y = draw_heading(c, "Решение сервера и fail-closed", x, y, 13)
     y = draw_bullets(c, [
         "Любой новый сеанс вызывает POST /v1/session/authorize.",
@@ -302,7 +312,7 @@ def page_data(c):
     c.setPageSize(A4)
     header(c, "РАЗДЕЛ 2 · СТРУКТУРА И ТЕРМИНЫ", "Данные, события, API и учёт времени", "data_api", 4,
            outline="Данные, события, API и учёт времени", level=1)
-    x, width, y = 38, PAGE_W - 76, PAGE_H - 98
+    x, width, y = 38, PAGE_W - 76, PAGE_H - 112
     y = draw_heading(c, "Основные таблицы", x, y, 13)
     tables = [
         ["Таблица", "Содержание"],
@@ -347,7 +357,7 @@ def page_stage1(c):
     header(c, "РАЗДЕЛ 3 · ЭТАПЫ ВЫПОЛНЕНИЯ", "Этап 1: завершённые работы", "stage1", 5,
            outline="3. Этапы выполнения", level=0)
     c.addOutlineEntry("Этап 1: выполненные пункты 1.0-1.9", "stage1", level=1, closed=False)
-    x, width, y = 38, PAGE_W - 76, PAGE_H - 96
+    x, width, y = 38, PAGE_W - 76, PAGE_H - 112
     draw_box(c, x, y, width, 54, PALE_GREEN, GREEN)
     c.setFillColor(GREEN); c.setFont("BodyBold", 13); c.drawString(x + 16, y - 22, "ЭТАП 1 ЗАВЕРШЁН")
     c.setFillColor(TEXT); c.setFont("Body", 8.5); c.drawString(x + 170, y - 22, "desktop -> local-server подтверждено; пункты 1.0-1.9 закрыты.")
@@ -387,7 +397,7 @@ def page_stage19(c):
     c.setPageSize(A4)
     header(c, "РАЗДЕЛ 3 · ЭТАПЫ ВЫПОЛНЕНИЯ", "Этап 1.9: приёмочные тесты", "stage19", 6,
            outline="Этап 1.9: приёмочные тесты и доказательства", level=1)
-    x, width, y = 38, PAGE_W - 76, PAGE_H - 96
+    x, width, y = 38, PAGE_W - 76, PAGE_H - 112
     draw_box(c, x, y, width, 48, PALE_GREEN, GREEN)
     c.setFillColor(GREEN); c.setFont("BodyBold", 11); c.drawString(x + 16, y - 20, "ЭТАП 1.9 ЗАВЕРШЁН")
     c.setFillColor(TEXT); c.setFont("Body", 8.5); c.drawString(x + 185, y - 20, "12 обязательных серверных проверок пройдены.")
@@ -444,7 +454,7 @@ def page_stage2(c):
     c.setPageSize(A4)
     header(c, "РАЗДЕЛ 3 · ЭТАПЫ ВЫПОЛНЕНИЯ", "Этап 2: коммерциализация", "stage2", 7,
            outline="Этап 2: коммерциализация, пункты 2.0-2.6", level=1)
-    x, width, y = 38, PAGE_W - 76, PAGE_H - 92
+    x, width, y = 38, PAGE_W - 76, PAGE_H - 112
     draw_box(c, x, y, width, 43, PALE_BLUE, BLUE)
     c.setFillColor(BLUE); c.setFont("BodyBold", 9); c.drawString(x + 14, y - 17, "ПРИНЦИП")
     draw_wrapped(c, "Сначала серверный учёт права доступа и долга; затем платёжный провайдер и альтернативные способы доступа.", x + 90, y - 11, width - 104, "small")
