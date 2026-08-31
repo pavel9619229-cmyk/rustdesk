@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_hbb/consts.dart';
@@ -22,6 +23,49 @@ const kLoginDialogTag = "LOGIN";
 const kUseTemporaryPassword = "use-temporary-password";
 const kUsePermanentPassword = "use-permanent-password";
 const kUseBothPasswords = "use-both-passwords";
+
+void _showWindowsSessionNotification(String title, String message) {
+  if (!isWindows) return;
+  final safeTitle = title.replaceAll("'", "''");
+  final safeMessage = message.replaceAll("'", "''");
+  final script = """
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+\$notification = New-Object System.Windows.Forms.NotifyIcon
+\$notification.Icon = [System.Drawing.SystemIcons]::Information
+\$notification.Visible = \$true
+\$notification.BalloonTipIcon = [System.Windows.Forms.ToolTipIcon]::Info
+\$notification.BalloonTipTitle = '$safeTitle'
+\$notification.BalloonTipText = '$safeMessage'
+\$notification.ShowBalloonTip(5000)
+Start-Sleep -Seconds 6
+\$notification.Dispose()
+""";
+  final encodedBytes = <int>[];
+  for (final unit in script.codeUnits) {
+    encodedBytes
+      ..add(unit & 0xff)
+      ..add(unit >> 8);
+  }
+  final encoded = base64Encode(encodedBytes);
+  unawaited(
+    Process.start(
+      'powershell.exe',
+      [
+        '-NoLogo',
+        '-NoProfile',
+        '-NonInteractive',
+        '-WindowStyle',
+        'Hidden',
+        '-EncodedCommand',
+        encoded,
+      ],
+      mode: ProcessStartMode.detached,
+    ).then<void>((_) {}).catchError((Object error) {
+      debugPrint('Failed to show Windows session notification: $error');
+    }),
+  );
+}
 
 class ServerModel with ChangeNotifier {
   bool _isStart = false; // Android MainService status
@@ -515,12 +559,22 @@ class ServerModel with ChangeNotifier {
     }
 
     final oldClientLenght = _clients.length;
+    final previousClients = {for (final client in _clients) client.id: client};
     _clients.clear();
     tabController.state.value.tabs.clear();
 
     for (var clientJson in clientsJson) {
       try {
         final client = Client.fromJson(clientJson);
+        final previous = previousClients[client.id];
+        if (previous != null) {
+          client.connectedAt = previous.connectedAt;
+        } else if (client.authorized && !client.disconnected) {
+          _showWindowsSessionNotification(
+            'Маша: удалённый оператор подключён',
+            'Оператор ${client.peerId} получил доступ к этому компьютеру.',
+          );
+        }
         _clients.add(client);
         _addTab(client);
       } catch (e) {
@@ -548,6 +602,10 @@ class ServerModel with ChangeNotifier {
         final index = _clients.indexWhere((c) => c.id == client.id);
         if (index < 0) {
           _clients.add(client);
+          _showWindowsSessionNotification(
+            'Маша: удалённый оператор подключён',
+            'Оператор ${client.peerId} получил доступ к этому компьютеру.',
+          );
         } else {
           if (_clients[index].authorized) {
             _clients[index].privacyMode = client.privacyMode;
@@ -556,6 +614,11 @@ class ServerModel with ChangeNotifier {
           }
           _clients[index].authorized = true;
           _clients[index].privacyMode = client.privacyMode;
+          _clients[index].connectedAt = DateTime.now();
+          _showWindowsSessionNotification(
+            'Маша: удалённый оператор подключён',
+            'Оператор ${client.peerId} получил доступ к этому компьютеру.',
+          );
         }
       } else {
         final index = _clients.indexWhere((c) => c.id == client.id);
@@ -596,13 +659,6 @@ class ServerModel with ChangeNotifier {
     Future.delayed(Duration.zero, () async {
       if (!hideCm) windowOnTop(null);
     });
-    // Only do the hidden task when on Desktop.
-    if (client.authorized && isDesktop) {
-      cmHiddenTimer = Timer(const Duration(seconds: 3), () {
-        if (!hideCm) windowManager.minimize();
-        cmHiddenTimer = null;
-      });
-    }
     parent.target?.chatModel
         .updateConnIdOfKey(MessageKey(client.peerId, client.id));
   }
@@ -700,6 +756,11 @@ class ServerModel with ChangeNotifier {
       }
       parent.target?.invokeMethod("cancel_notification", client.id);
       client.authorized = true;
+      client.connectedAt = DateTime.now();
+      _showWindowsSessionNotification(
+        'Маша: удалённый оператор подключён',
+        'Оператор ${client.peerId} получил доступ к этому компьютеру.',
+      );
       notifyListeners();
     } else {
       bind.cmLoginRes(connId: client.id, res: res);
@@ -718,6 +779,13 @@ class ServerModel with ChangeNotifier {
       if (_clients.any((c) => c.id == id)) {
         final index = _clients.indexWhere((client) => client.id == id);
         if (index >= 0) {
+          final removedClient = _clients[index];
+          if (removedClient.authorized && !removedClient.disconnected) {
+            _showWindowsSessionNotification(
+              'Маша: удалённый сеанс завершён',
+              'Оператор ${removedClient.peerId} отключён от этого компьютера.',
+            );
+          }
           if (close) {
             _clients.removeAt(index);
             tabController.remove(index);
@@ -832,6 +900,7 @@ class Client {
   bool fromSwitch = false;
   bool inVoiceCall = false;
   bool incomingVoiceCall = false;
+  DateTime connectedAt = DateTime.now();
 
   RxInt unreadChatMessageCount = 0.obs;
 

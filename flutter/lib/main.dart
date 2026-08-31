@@ -22,6 +22,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:get/get.dart';
 import 'package:provider/provider.dart';
 import 'package:window_manager/window_manager.dart';
+import 'package:window_size/window_size.dart' as window_size;
 
 import 'common.dart';
 import 'consts.dart';
@@ -308,28 +309,40 @@ void runConnectionManagerScreen() async {
 
 bool _isCmReadyToShow = false;
 
+Future<void> _positionIncomingSessionBanner() async {
+  final screens = await window_size.getScreenList();
+  if (screens.isNotEmpty) {
+    final frame = screens.first.visibleFrame;
+    await windowManager
+        .setSize(Size(frame.width, kIncomingSessionBannerHeight));
+    await windowManager.setPosition(Offset(frame.left, frame.top));
+  } else {
+    await windowManager.setSize(kIncomingSessionBannerFallbackSize);
+    await windowManager.setAlignment(Alignment.topCenter);
+  }
+  await windowManager.setAlwaysOnTop(true);
+  await windowManager.setMinimizable(false);
+  await windowManager.setMaximizable(false);
+}
+
 showCmWindow({bool isStartup = false}) async {
   if (isStartup) {
     WindowOptions windowOptions = getHiddenTitleBarWindowOptions(
-        size: kConnectionManagerWindowSizeClosedChat, alwaysOnTop: true);
+        size: kIncomingSessionBannerFallbackSize, alwaysOnTop: true);
     await windowManager.waitUntilReadyToShow(windowOptions, null);
     bind.mainHideDock();
+    await _positionIncomingSessionBanner();
     await Future.wait([
       windowManager.show(),
       windowManager.focus(),
       windowManager.setOpacity(1)
     ]);
-    // ensure initial window size to be changed
-    await windowManager.setSizeAlignment(
-        kConnectionManagerWindowSizeClosedChat, Alignment.topRight);
     _isCmReadyToShow = true;
   } else if (_isCmReadyToShow) {
     if (await windowManager.getOpacity() != 1) {
       await windowManager.setOpacity(1);
-      await windowManager.focus();
-      await windowManager.minimize(); //needed
-      await windowManager.setSizeAlignment(
-          kConnectionManagerWindowSizeClosedChat, Alignment.topRight);
+      await _positionIncomingSessionBanner();
+      await windowManager.show();
       windowOnTop(null);
     }
   }
@@ -338,7 +351,7 @@ showCmWindow({bool isStartup = false}) async {
 hideCmWindow({bool isStartup = false}) async {
   if (isStartup) {
     WindowOptions windowOptions = getHiddenTitleBarWindowOptions(
-        size: kConnectionManagerWindowSizeClosedChat);
+        size: kIncomingSessionBannerFallbackSize);
     windowManager.setOpacity(0);
     await windowManager.waitUntilReadyToShow(windowOptions, null);
     bind.mainHideDock();

@@ -55,6 +55,11 @@ class _DesktopServerPageState extends State<DesktopServerPage>
 
   @override
   void onWindowClose() {
+    final hasActiveSession = gFFI.serverModel.clients
+        .any((client) => client.authorized && !client.disconnected);
+    if (hasActiveSession) {
+      return;
+    }
     Future.wait([gFFI.serverModel.closeAll(), gFFI.close()]).then((_) {
       if (isMacOS) {
         RdPlatformChannel.instance.terminate();
@@ -170,6 +175,16 @@ class ConnectionManagerState extends State<ConnectionManager>
         serverModel.cmHiddenTimer = null;
         debugPrint("CM hidden timer has been canceled");
       }
+    }
+
+    final activeRemoteClients = serverModel.clients
+        .where((client) =>
+            client.authorized &&
+            !client.disconnected &&
+            client.type_() == ClientType.remote)
+        .toList();
+    if (activeRemoteClients.isNotEmpty) {
+      return _IncomingSessionBanner(clients: activeRemoteClients);
     }
 
     return serverModel.clients.isEmpty
@@ -342,6 +357,145 @@ class ConnectionManagerState extends State<ConnectionManager>
       }
       return res;
     }
+  }
+}
+
+class _IncomingSessionBanner extends StatefulWidget {
+  final List<Client> clients;
+
+  const _IncomingSessionBanner({required this.clients});
+
+  @override
+  State<_IncomingSessionBanner> createState() => _IncomingSessionBannerState();
+}
+
+class _IncomingSessionBannerState extends State<_IncomingSessionBanner> {
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  String _formatClock(DateTime value) {
+    String twoDigits(int number) => number.toString().padLeft(2, '0');
+    return '${twoDigits(value.hour)}:${twoDigits(value.minute)}:'
+        '${twoDigits(value.second)}';
+  }
+
+  String _formatDuration(Duration value) {
+    final hours = value.inHours;
+    final minutes = value.inMinutes.remainder(60);
+    final seconds = value.inSeconds.remainder(60);
+    String twoDigits(int number) => number.toString().padLeft(2, '0');
+    return '${twoDigits(hours)}:${twoDigits(minutes)}:'
+        '${twoDigits(seconds)}';
+  }
+
+  String _formatPeerId(String value) {
+    final chunks = <String>[];
+    for (var end = value.length; end > 0; end -= 3) {
+      final start = max(0, end - 3);
+      chunks.insert(0, value.substring(start, end));
+    }
+    return chunks.join(' ');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final client = widget.clients.first;
+    final elapsed = DateTime.now().difference(client.connectedAt);
+    final additionalClients = widget.clients.length - 1;
+
+    return Material(
+      color: const Color(0xFFE65100),
+      child: SizedBox(
+        height: kIncomingSessionBannerHeight,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+          child: Row(
+            children: [
+              const Icon(Icons.screen_share_rounded,
+                  color: Colors.white, size: 34),
+              const SizedBox(width: 16),
+              Expanded(
+                flex: 3,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'К этому компьютеру подключён удалённый оператор',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      'ID оператора: ${_formatPeerId(client.peerId)}'
+                      '${additionalClients > 0 ? '  ·  ещё подключений: $additionalClients' : ''}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: Colors.white, fontSize: 14),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 20),
+              Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Начало: ${_formatClock(client.connectedAt)}',
+                    style: const TextStyle(color: Colors.white, fontSize: 14),
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    'Длительность: ${_formatDuration(elapsed)}',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(width: 24),
+              ElevatedButton.icon(
+                onPressed: () => checkClickTime(
+                  client.id,
+                  () => bind.cmCloseConnection(connId: client.id),
+                ),
+                icon: const Icon(Icons.stop_circle_outlined),
+                label: const Text('Отключить оператора'),
+                style: ElevatedButton.styleFrom(
+                  foregroundColor: const Color(0xFFB71C1C),
+                  backgroundColor: Colors.white,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+                  textStyle: const TextStyle(
+                      fontSize: 14, fontWeight: FontWeight.w700),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 
