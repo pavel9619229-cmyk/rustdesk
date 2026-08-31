@@ -7,6 +7,7 @@ import tempfile
 import threading
 import time
 import unittest
+import urllib.error
 import urllib.request
 from contextlib import closing
 from unittest import mock
@@ -363,6 +364,45 @@ class AuthorizeTests(unittest.TestCase):
             self.assertEqual(status['warning_seconds'], 600)
             self.assertEqual(status['billable_seconds'], 0)
         finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
+    def test_download_endpoint_serves_only_the_release_file(self):
+        filename = next(iter(self.auth.DOWNLOAD_FILES))
+        download_root = Path(self.temporary.name) / 'downloads'
+        download_root.mkdir(exist_ok=True)
+        payload = b'masha-stage-2.0-test-archive'
+        (download_root / filename).write_bytes(payload)
+        previous_root = self.auth.DOWNLOAD_ROOT
+        self.auth.DOWNLOAD_ROOT = download_root
+        server = self.auth.ThreadingHTTPServer(
+            ('127.0.0.1', 0),
+            self.auth.Handler,
+        )
+        server.signing_key = self.key
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            url = f'http://127.0.0.1:{server.server_port}/downloads/{filename}'
+            with urllib.request.urlopen(url, timeout=5) as response:
+                self.assertEqual(response.read(), payload)
+                self.assertEqual(response.status, 200)
+                self.assertEqual(response.headers['Content-Type'], 'application/zip')
+                self.assertEqual(response.headers['Content-Length'], str(len(payload)))
+            request = urllib.request.Request(url, method='HEAD')
+            with urllib.request.urlopen(request, timeout=5) as response:
+                self.assertEqual(response.status, 200)
+                self.assertEqual(response.read(), b'')
+            with self.assertRaises(urllib.error.HTTPError) as rejected:
+                urllib.request.urlopen(
+                    f'http://127.0.0.1:{server.server_port}/downloads/unknown.zip',
+                    timeout=5,
+                )
+            self.assertEqual(rejected.exception.code, 404)
+            rejected.exception.close()
+        finally:
+            self.auth.DOWNLOAD_ROOT = previous_root
             server.shutdown()
             server.server_close()
             thread.join(timeout=5)

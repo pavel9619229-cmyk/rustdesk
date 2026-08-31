@@ -20,6 +20,11 @@ POSTPAID_RATE_MINOR_PER_HOUR=100
 POSTPAID_DUE_SECONDS=86400
 POSTPAID_GRACE_SECONDS=3600
 POSTPAID_WARNING_SECONDS=600
+DOWNLOAD_ROOT=Path(os.getenv('MASHA_DOWNLOAD_ROOT','/opt/masha-downloads'))
+DOWNLOAD_FILES={
+    'masha-stage-2.0-frontend-windows-x64-63271488f.zip':
+        '0B256931D01D77D958BD3FEE957A9CE982615026729103AFCE9CC2E48B32CB7C',
+}
 logging.basicConfig(level=logging.INFO,format='%(asctime)s %(levelname)s %(message)s')
 LOG=logging.getLogger('masha-auth')
 
@@ -431,6 +436,29 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(code); self.send_header('Content-Type','application/json; charset=utf-8')
         self.send_header('Content-Length',str(len(b))); self.send_header('Cache-Control','no-store')
         self.end_headers(); self.wfile.write(b)
+    def send_download(self,parsed,send_body=True):
+        name=parsed.path.removeprefix('/downloads/')
+        digest=DOWNLOAD_FILES.get(name)
+        path=DOWNLOAD_ROOT/name
+        if not digest or not path.is_file():
+            return self.sendj(404,{'error':'not_found'})
+        self.send_response(200)
+        self.send_header('Content-Type','application/zip')
+        self.send_header('Content-Length',str(path.stat().st_size))
+        self.send_header('Content-Disposition',f'attachment; filename="{name}"')
+        self.send_header('Cache-Control','public, max-age=3600')
+        self.send_header('ETag',f'"sha256:{digest}"')
+        self.send_header('X-Content-Type-Options','nosniff')
+        self.end_headers()
+        if send_body:
+            with path.open('rb') as source:
+                while chunk:=source.read(1024*1024):
+                    self.wfile.write(chunk)
+    def do_HEAD(self):
+        parsed=urlparse(self.path)
+        if parsed.path.startswith('/downloads/'):
+            return self.send_download(parsed,False)
+        self.sendj(404,{'error':'not_found'})
 
     def do_GET(self):
         parsed=urlparse(self.path)
@@ -441,6 +469,8 @@ class Handler(BaseHTTPRequestHandler):
             if not operator_id or len(operator_id)>256:
                 return self.sendj(400,{'allowed':False,'reason':'invalid_request'})
             self.sendj(200,access_status(operator_id))
+        elif parsed.path.startswith('/downloads/'):
+            self.send_download(parsed)
         else:
             self.sendj(404,{'error':'not_found'})
     def do_POST(self):
