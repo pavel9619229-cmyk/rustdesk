@@ -65,48 +65,15 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   Widget build(BuildContext context) {
     super.build(context);
     final isIncomingOnly = bind.isIncomingOnly();
-    return Stack(
-      children: [
-        Positioned.fill(
-          child: _buildBlock(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                buildLeftPane(context),
-                if (!isIncomingOnly) const VerticalDivider(width: 1),
-                if (!isIncomingOnly) Expanded(child: buildRightPane(context)),
-              ],
-            ),
-          ),
-        ),
-        Positioned(
-          top: 5,
-          left: 7,
-          child: IgnorePointer(
-            child: FutureBuilder<String>(
-              future: _buildNumberFuture,
-              builder: (context, snapshot) {
-                final buildNumber = snapshot.data;
-                if (buildNumber == null || buildNumber.isEmpty) {
-                  return const SizedBox.shrink();
-                }
-                return Text(
-                  'Сборка $buildNumber',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    color: Theme.of(context)
-                        .textTheme
-                        .bodySmall
-                        ?.color
-                        ?.withOpacity(0.6),
-                  ),
-                );
-              },
-            ),
-          ),
-        ),
-      ],
+    return _buildBlock(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          buildLeftPane(context),
+          if (!isIncomingOnly) const VerticalDivider(width: 1),
+          if (!isIncomingOnly) Expanded(child: buildRightPane(context)),
+        ],
+      ),
     );
   }
 
@@ -119,6 +86,32 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     final isIncomingOnly = bind.isIncomingOnly();
     final isOutgoingOnly = bind.isOutgoingOnly();
     final children = <Widget>[
+      Align(
+        alignment: Alignment.centerLeft,
+        child: IgnorePointer(
+          child: FutureBuilder<String>(
+            future: _buildNumberFuture,
+            builder: (context, snapshot) {
+              final buildNumber = snapshot.data;
+              if (buildNumber == null || buildNumber.isEmpty) {
+                return const SizedBox.shrink();
+              }
+              return Text(
+                '\u0421\u0431\u043e\u0440\u043a\u0430 $buildNumber',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: Theme.of(context)
+                      .textTheme
+                      .bodySmall
+                      ?.color
+                      ?.withOpacity(0.6),
+                ),
+              );
+            },
+          ),
+        ),
+      ).marginOnly(left: 8, top: 4, bottom: 2),
       if (!isOutgoingOnly) buildPresetPasswordWarning(),
       if (bind.isCustomClient())
         Align(
