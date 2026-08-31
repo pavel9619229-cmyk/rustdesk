@@ -21,6 +21,7 @@ import 'package:flutter_hbb/plugin/ui_manager.dart';
 import 'package:flutter_hbb/utils/multi_window_manager.dart';
 import 'package:flutter_hbb/utils/platform_channel.dart';
 import 'package:get/get.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:window_manager/window_manager.dart';
@@ -53,6 +54,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   bool isCardClosed = false;
   bool _refreshingActiveSessions = false;
   List<ActiveRemoteSession> _activeRemoteSessions = const [];
+  late final Future<String> _buildNumberFuture;
 
   final RxBool _editHover = false.obs;
   final RxBool _block = false.obs;
@@ -63,15 +65,49 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   Widget build(BuildContext context) {
     super.build(context);
     final isIncomingOnly = bind.isIncomingOnly();
-    return _buildBlock(
-        child: Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return Stack(
       children: [
-        buildLeftPane(context),
-        if (!isIncomingOnly) const VerticalDivider(width: 1),
-        if (!isIncomingOnly) Expanded(child: buildRightPane(context)),
+        Positioned.fill(
+          child: _buildBlock(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                buildLeftPane(context),
+                if (!isIncomingOnly) const VerticalDivider(width: 1),
+                if (!isIncomingOnly) Expanded(child: buildRightPane(context)),
+              ],
+            ),
+          ),
+        ),
+        Positioned(
+          top: 5,
+          left: 7,
+          child: IgnorePointer(
+            child: FutureBuilder<String>(
+              future: _buildNumberFuture,
+              builder: (context, snapshot) {
+                final buildNumber = snapshot.data;
+                if (buildNumber == null || buildNumber.isEmpty) {
+                  return const SizedBox.shrink();
+                }
+                return Text(
+                  'Сборка $buildNumber',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: Theme.of(context)
+                        .textTheme
+                        .bodySmall
+                        ?.color
+                        ?.withOpacity(0.6),
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
       ],
-    ));
+    );
   }
 
   Widget _buildBlock({required Widget child}) {
@@ -818,6 +854,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   @override
   void initState() {
     super.initState();
+    _buildNumberFuture =
+        PackageInfo.fromPlatform().then((info) => info.buildNumber);
     _updateTimer = periodic_immediate(const Duration(seconds: 1), () async {
       await gFFI.serverModel.fetchID();
       await _refreshActiveRemoteSessions();
