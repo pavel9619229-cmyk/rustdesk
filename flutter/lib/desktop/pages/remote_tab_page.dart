@@ -503,6 +503,36 @@ class _ConnectionTabPageState extends State<ConnectionTabPage> {
           .map((e) => e.key)
           .toList()
           .join(',');
+    } else if (call.method == kWindowEventGetActiveRemoteSessions) {
+      final sessions = <Map<String, dynamic>>[];
+      for (final tab in tabController.state.value.tabs) {
+        final page = tab.page;
+        if (page is! RemotePage) continue;
+        final ffi = page.ffi;
+        final model = ffi.ffiModel;
+        if (!ffi.closed && model.remoteSessionActive) {
+          final hostname = model.pi.hostname.trim();
+          final username = model.pi.username.trim();
+          sessions.add({
+            'id': tab.key,
+            'name': hostname.isNotEmpty
+                ? hostname
+                : username.isNotEmpty
+                    ? username
+                    : tab.key,
+            'started_at_ms':
+                model.remoteSessionStartedAt?.millisecondsSinceEpoch,
+          });
+        }
+      }
+      return jsonEncode(sessions);
+    } else if (call.method == kWindowEventCloseRemoteSession) {
+      final id = call.arguments?.toString() ?? '';
+      final exists = tabController.state.value.tabs.any((tab) => tab.key == id);
+      if (exists) {
+        tabController.closeBy(id);
+      }
+      return exists;
     } else if (call.method == kWindowEventGetSessionIdList) {
       return tabController.state.value.tabs
           .map((e) => '${e.key},${(e.page as RemotePage).ffi.sessionId}')

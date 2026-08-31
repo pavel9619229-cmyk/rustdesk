@@ -49,6 +49,29 @@ class MultiWindowCallResult {
   MultiWindowCallResult(this.windowId, this.result);
 }
 
+class ActiveRemoteSession {
+  final String id;
+  final String name;
+  final DateTime startedAt;
+
+  const ActiveRemoteSession({
+    required this.id,
+    required this.name,
+    required this.startedAt,
+  });
+
+  factory ActiveRemoteSession.fromJson(Map<String, dynamic> json) {
+    final startedAtMs = json['started_at_ms'] as int?;
+    return ActiveRemoteSession(
+      id: json['id']?.toString() ?? '',
+      name: json['name']?.toString() ?? '',
+      startedAt: startedAtMs == null
+          ? DateTime.now()
+          : DateTime.fromMillisecondsSinceEpoch(startedAtMs),
+    );
+  }
+}
+
 /// Window Manager
 /// mainly use it in `Main Window`
 /// use it in sub window is not recommended
@@ -286,6 +309,70 @@ class RustDeskMultiWindowManager {
     );
   }
 
+  Future<List<ActiveRemoteSession>> getActiveRemoteSessions() async {
+    final sessionsById = <String, ActiveRemoteSession>{};
+    for (final windowId in List<int>.from(_remoteDesktopWindows)) {
+      try {
+        final response = await DesktopMultiWindow.invokeMethod(
+          windowId,
+          kWindowEventGetActiveRemoteSessions,
+          null,
+        );
+        if (response is! String || response.isEmpty) continue;
+        final decoded = jsonDecode(response);
+        if (decoded is! List) continue;
+        for (final item in decoded) {
+          if (item is! Map) continue;
+          final session = ActiveRemoteSession.fromJson(
+            Map<String, dynamic>.from(item),
+          );
+          if (session.id.isNotEmpty) {
+            sessionsById[session.id] = session;
+          }
+        }
+      } catch (error) {
+        debugPrint(
+            'Failed to read active sessions from window $windowId: $error');
+      }
+    }
+    return sessionsById.values.toList()
+      ..sort((a, b) => a.startedAt.compareTo(b.startedAt));
+  }
+
+  Future<bool> activateRemoteSession(String remoteId) async {
+    for (final windowId in List<int>.from(_remoteDesktopWindows)) {
+      try {
+        final activated = await DesktopMultiWindow.invokeMethod(
+          windowId,
+          kWindowEventActiveSession,
+          remoteId,
+        );
+        if (activated == true) return true;
+      } catch (error) {
+        debugPrint(
+            'Failed to activate session $remoteId in window $windowId: $error');
+      }
+    }
+    return false;
+  }
+
+  Future<bool> closeRemoteSession(String remoteId) async {
+    for (final windowId in List<int>.from(_remoteDesktopWindows)) {
+      try {
+        final closed = await DesktopMultiWindow.invokeMethod(
+          windowId,
+          kWindowEventCloseRemoteSession,
+          remoteId,
+        );
+        if (closed == true) return true;
+      } catch (error) {
+        debugPrint(
+            'Failed to close session $remoteId in window $windowId: $error');
+      }
+    }
+    return false;
+  }
+
   Future<MultiWindowCallResult> newFileTransfer(
     String remoteId, {
     String? password,
@@ -472,7 +559,8 @@ class RustDeskMultiWindowManager {
     }
     for (int i = 0; i < windows.length; i++) {
       final wId = windows[i];
-      final shouldSavePos = type != WindowType.Terminal || i == windows.length - 1;
+      final shouldSavePos =
+          type != WindowType.Terminal || i == windows.length - 1;
       if (shouldSavePos) {
         debugPrint("closing multi window, type: ${type.toString()} id: $wId");
         try {

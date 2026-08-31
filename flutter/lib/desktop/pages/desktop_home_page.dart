@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:auto_size_text/auto_size_text.dart';
 import 'package:flutter/material.dart';
@@ -50,6 +51,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   var watchIsCanRecordAudio = false;
   Timer? _updateTimer;
   bool isCardClosed = false;
+  bool _refreshingActiveSessions = false;
+  List<ActiveRemoteSession> _activeRemoteSessions = const [];
 
   final RxBool _editHover = false.obs;
   final RxBool _block = false.obs;
@@ -180,10 +183,128 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     );
   }
 
+  Future<void> _refreshActiveRemoteSessions() async {
+    if (_refreshingActiveSessions) return;
+    _refreshingActiveSessions = true;
+    try {
+      final sessions = await rustDeskWinManager.getActiveRemoteSessions();
+      if (!mounted) return;
+      if (sessions.isNotEmpty || _activeRemoteSessions.isNotEmpty) {
+        setState(() {
+          _activeRemoteSessions = sessions;
+        });
+      }
+    } finally {
+      _refreshingActiveSessions = false;
+    }
+  }
+
+  String _formatSessionId(String value) {
+    final chunks = <String>[];
+    for (var end = value.length; end > 0; end -= 3) {
+      final start = max(0, end - 3);
+      chunks.insert(0, value.substring(start, end));
+    }
+    return chunks.join(' ');
+  }
+
+  String _formatSessionDuration(DateTime startedAt) {
+    final duration = DateTime.now().difference(startedAt);
+    String twoDigits(int value) => value.toString().padLeft(2, '0');
+    return '${twoDigits(duration.inHours)}:'
+        '${twoDigits(duration.inMinutes.remainder(60))}:'
+        '${twoDigits(duration.inSeconds.remainder(60))}';
+  }
+
+  Widget _buildActiveSessionsPanel(BuildContext context) {
+    if (_activeRemoteSessions.isEmpty) return const SizedBox.shrink();
+    final session = _activeRemoteSessions.first;
+    final additionalCount = _activeRemoteSessions.length - 1;
+    final deviceName =
+        session.name == session.id ? 'Удалённый компьютер' : session.name;
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 13),
+      decoration: BoxDecoration(
+        color: const Color(0xFFE8F5E9),
+        border: Border.all(color: const Color(0xFF43A047), width: 1.5),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 12,
+            height: 12,
+            decoration: const BoxDecoration(
+              color: Color(0xFF2E7D32),
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Активное подключение',
+                  style: TextStyle(
+                    color: Color(0xFF1B5E20),
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '$deviceName · ID ${_formatSessionId(session.id)}'
+                  ' · ${_formatSessionDuration(session.startedAt)}'
+                  '${additionalCount > 0 ? ' · ещё: $additionalCount' : ''}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Color(0xFF263238),
+                    fontSize: 13,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          OutlinedButton.icon(
+            onPressed: () async {
+              await rustDeskWinManager.activateRemoteSession(session.id);
+            },
+            icon: const Icon(Icons.open_in_new_rounded, size: 18),
+            label: const Text('Открыть сеанс'),
+          ),
+          const SizedBox(width: 8),
+          ElevatedButton.icon(
+            onPressed: () async {
+              await rustDeskWinManager.closeRemoteSession(session.id);
+              await _refreshActiveRemoteSessions();
+            },
+            icon: const Icon(Icons.stop_circle_outlined, size: 18),
+            label: const Text('Отключить'),
+            style: ElevatedButton.styleFrom(
+              foregroundColor: Colors.white,
+              backgroundColor: const Color(0xFFC62828),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   buildRightPane(BuildContext context) {
     return Container(
       color: Theme.of(context).scaffoldBackgroundColor,
-      child: ConnectionPage(),
+      child: Column(
+        children: [
+          _buildActiveSessionsPanel(context),
+          Expanded(child: ConnectionPage()),
+        ],
+      ),
     );
   }
 
@@ -699,6 +820,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     super.initState();
     _updateTimer = periodic_immediate(const Duration(seconds: 1), () async {
       await gFFI.serverModel.fetchID();
+      await _refreshActiveRemoteSessions();
       final error = await bind.mainGetError();
       if (systemError != error) {
         systemError = error;
@@ -767,7 +889,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
 
     bool isChattyMethod(String methodName) {
       switch (methodName) {
-        case kWindowBumpMouse: return true;
+        case kWindowBumpMouse:
+          return true;
       }
 
       return false;
@@ -776,7 +899,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     rustDeskWinManager.setMethodHandler((call, fromWindowId) async {
       if (!isChattyMethod(call.method)) {
         debugPrint(
-          "[Main] call ${call.method} with args ${call.arguments} from window $fromWindowId");
+            "[Main] call ${call.method} with args ${call.arguments} from window $fromWindowId");
       }
       if (call.method == kWindowMainWindowOnTop) {
         windowOnTop(null);
@@ -811,9 +934,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           connToken: call.arguments['connToken'],
         );
       } else if (call.method == kWindowBumpMouse) {
-        return RdPlatformChannel.instance.bumpMouse(
-          dx: call.arguments['dx'],
-          dy: call.arguments['dy']);
+        return RdPlatformChannel.instance
+            .bumpMouse(dx: call.arguments['dx'], dy: call.arguments['dy']);
       } else if (call.method == kWindowEventMoveTabToNewWindow) {
         final args = call.arguments.split(',');
         int? windowId;

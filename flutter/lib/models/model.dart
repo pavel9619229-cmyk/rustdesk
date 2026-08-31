@@ -136,6 +136,8 @@ class FfiModel with ChangeNotifier {
   Timer? waitForImageTimer;
   RxBool waitForFirstImage = true.obs;
   bool isRefreshing = false;
+  bool remoteSessionActive = false;
+  DateTime? remoteSessionStartedAt;
 
   Timer? timerScreenshot;
 
@@ -912,6 +914,8 @@ class FfiModel with ChangeNotifier {
         type == 'restarting' ||
         (type is String && type.contains('error'))) {
       parent.target?.inputModel.setRelativeMouseMode(false);
+      remoteSessionActive = false;
+      remoteSessionStartedAt = null;
     }
 
     if (type == 're-input-password') {
@@ -3948,6 +3952,8 @@ class FFI {
     }
     if (ffiModel.waitForFirstImage.value == true) {
       ffiModel.waitForFirstImage.value = false;
+      ffiModel.remoteSessionActive = true;
+      ffiModel.remoteSessionStartedAt ??= DateTime.now();
       ffiModel.cancelPendingRestoreTimer();
       ffiModel.resetRestartReconnectState();
       dialogManager.dismissAll();
@@ -3996,6 +4002,8 @@ class FFI {
   /// Close the remote session.
   Future<void> close({bool closeSession = true}) async {
     closed = true;
+    ffiModel.remoteSessionActive = false;
+    ffiModel.remoteSessionStartedAt = null;
     chatModel.close();
     // Close all terminal models
     for (final model in _terminalModels.values) {
