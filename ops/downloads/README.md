@@ -11,12 +11,13 @@ Public test package:
 
 Stage 2.0 frontend acceptance package:
 
-- file: `masha-stage-2.0-frontend-windows-x64-63271488f.zip`;
+- build number: `69`;
+- file: `masha-build-69-stage-2.0-windows-x64-63271488f.zip`;
 - source commit: `63271488f5d27b00bcff272714acfe3134a48854`;
 - SHA-256: `0B256931D01D77D958BD3FEE957A9CE982615026729103AFCE9CC2E48B32CB7C`;
-- HTTP URL: `http://77.222.38.70/masha-stage-2.0-frontend-windows-x64-63271488f.zip`;
-- VPS HTTPS fallback: `https://77.222.38.70:8443/downloads/masha-stage-2.0-frontend-windows-x64-63271488f.zip`;
-- GitHub HTTPS fallback: `https://github.com/pavel9619229-cmyk/rustdesk/releases/download/masha-stage-2.0-frontend-63271488f/masha-stage-2.0-frontend-windows-x64-63271488f.zip`.
+- HTTP URL: `http://77.222.38.70/masha-build-69-stage-2.0-windows-x64-63271488f.zip`;
+- VPS HTTPS fallback: `https://77.222.38.70:8443/downloads/masha-build-69-stage-2.0-windows-x64-63271488f.zip`;
+- GitHub HTTPS fallback: `https://github.com/pavel9619229-cmyk/rustdesk/releases/download/masha-stage-2.0-frontend-63271488f/masha-build-69-stage-2.0-windows-x64-63271488f.zip`.
 
 The endpoint serves only the exact release filenames and has no directory listing.
 The legacy link uses plain HTTP because VPS port 443 is occupied by the Masha relay.
