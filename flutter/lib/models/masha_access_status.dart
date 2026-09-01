@@ -3,9 +3,18 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 const mashaAccessStatusEndpoint = 'https://77.222.38.70:8443/v1/access/status';
+const mashaPaymentsCreateEndpoint =
+    'https://77.222.38.70:8443/v1/payments/create';
+const mashaPaymentsSyncEndpoint = 'https://77.222.38.70:8443/v1/payments/sync';
 
 abstract class MashaAccessStatusSource {
   Future<MashaAccessStatus> fetch(String operatorId);
+
+  Future<MashaPaymentOrder> createPayment(String operatorId) =>
+      Future.error(UnsupportedError('payments are not supported'));
+
+  Future<MashaPaymentOrder> syncPayment(String paymentOrderId) =>
+      Future.error(UnsupportedError('payments are not supported'));
 
   void close() {}
 }
@@ -39,7 +48,104 @@ class MashaAccessStatusClient implements MashaAccessStatusSource {
   }
 
   @override
+  Future<MashaPaymentOrder> createPayment(String operatorId) async {
+    final normalizedId = operatorId.trim();
+    if (normalizedId.isEmpty) {
+      throw const FormatException('operator id is empty');
+    }
+    final response = await _client
+        .post(
+          Uri.parse(mashaPaymentsCreateEndpoint),
+          headers: const {'Content-Type': 'application/json'},
+          body: jsonEncode({'operator_id': normalizedId}),
+        )
+        .timeout(const Duration(seconds: 15));
+    final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+    if (response.statusCode != 200 || decoded is! Map<String, dynamic>) {
+      throw StateError('payment create HTTP ${response.statusCode}');
+    }
+    if (decoded['ok'] != true) {
+      throw StateError(
+          _paymentString(decoded['reason'], fallback: 'payment failed'));
+    }
+    return MashaPaymentOrder.fromJson(decoded);
+  }
+
+  @override
+  Future<MashaPaymentOrder> syncPayment(String paymentOrderId) async {
+    final normalizedId = paymentOrderId.trim();
+    if (normalizedId.isEmpty) {
+      throw const FormatException('payment order id is empty');
+    }
+    final response = await _client
+        .post(
+          Uri.parse(mashaPaymentsSyncEndpoint),
+          headers: const {'Content-Type': 'application/json'},
+          body: jsonEncode({'payment_order_id': normalizedId}),
+        )
+        .timeout(const Duration(seconds: 15));
+    final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+    if (response.statusCode != 200 || decoded is! Map<String, dynamic>) {
+      throw StateError('payment sync HTTP ${response.statusCode}');
+    }
+    final payment = decoded['payment'];
+    if (decoded['ok'] != true || payment is! Map<String, dynamic>) {
+      throw StateError(
+          _paymentString(decoded['reason'], fallback: 'payment sync failed'));
+    }
+    return MashaPaymentOrder.fromJson(payment);
+  }
+
+  @override
   void close() => _client.close();
+}
+
+class MashaPaymentOrder {
+  const MashaPaymentOrder({
+    required this.paymentOrderId,
+    required this.status,
+    required this.amountMinor,
+    required this.currency,
+    required this.reused,
+    this.providerPaymentId,
+    this.confirmationUrl,
+  });
+
+  factory MashaPaymentOrder.fromJson(Map<String, dynamic> json) =>
+      MashaPaymentOrder(
+        paymentOrderId: _paymentString(json['payment_order_id']),
+        providerPaymentId: _paymentNullableString(json['provider_payment_id']),
+        status: _paymentString(json['status']),
+        amountMinor: _paymentInteger(json['amount_minor']) ?? 0,
+        currency: _paymentString(json['currency'], fallback: 'RUB'),
+        confirmationUrl: _paymentNullableString(json['confirmation_url']),
+        reused: json['reused'] == true,
+      );
+
+  final String paymentOrderId;
+  final String? providerPaymentId;
+  final String status;
+  final int amountMinor;
+  final String currency;
+  final String? confirmationUrl;
+  final bool reused;
+}
+
+int? _paymentInteger(Object? value) {
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  return int.tryParse(value?.toString() ?? '');
+}
+
+String _paymentString(Object? value, {String fallback = ''}) {
+  final result = value?.toString() ?? '';
+  return result.isEmpty ? fallback : result;
+}
+
+String? _paymentNullableString(Object? value) {
+  if (value == null) return null;
+  final text = value.toString();
+  return text.isEmpty ? null : text;
 }
 
 class MashaAccessStatus {

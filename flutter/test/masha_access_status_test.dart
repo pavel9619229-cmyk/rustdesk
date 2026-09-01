@@ -8,12 +8,44 @@ class _FakeSource implements MashaAccessStatusSource {
 
   final MashaAccessStatus status;
   int calls = 0;
+  int createCalls = 0;
+  int syncCalls = 0;
 
   @override
   Future<MashaAccessStatus> fetch(String operatorId) async {
     expect(operatorId, 'operator-01');
     calls += 1;
     return status;
+  }
+
+  @override
+  Future<MashaPaymentOrder> createPayment(String operatorId) async {
+    expect(operatorId, 'operator-01');
+    createCalls += 1;
+    return const MashaPaymentOrder(
+      paymentOrderId: 'order-01',
+      providerPaymentId: 'provider-01',
+      status: 'pending',
+      amountMinor: 100,
+      currency: 'RUB',
+      confirmationUrl: 'https://yookassa.test/pay/order-01',
+      reused: false,
+    );
+  }
+
+  @override
+  Future<MashaPaymentOrder> syncPayment(String paymentOrderId) async {
+    expect(paymentOrderId, 'order-01');
+    syncCalls += 1;
+    return const MashaPaymentOrder(
+      paymentOrderId: 'order-01',
+      providerPaymentId: 'provider-01',
+      status: 'succeeded',
+      amountMinor: 100,
+      currency: 'RUB',
+      confirmationUrl: 'https://yookassa.test/pay/order-01',
+      reused: false,
+    );
   }
 
   @override
@@ -101,7 +133,44 @@ void main() {
     expect(find.text('Просрочено, действует grace period'), findsOneWidget);
     expect(find.text('Постоплата'), findsOneWidget);
     expect(find.byKey(const Key('masha-access-warning')), findsOneWidget);
+    expect(find.byKey(const Key('masha-pay-button')), findsOneWidget);
+    expect(find.text('Оплатить 1 ₽'), findsOneWidget);
     expect(source.calls, 1);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('creates payment and opens YooKassa confirmation page',
+      (tester) async {
+    final source = _FakeSource(MashaAccessStatus.fromJson(_json()));
+    Uri? launched;
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: SizedBox(
+          width: 430,
+          child: MashaAccessPaymentPanel(
+            operatorIdLoader: () async => 'operator-01',
+            source: source,
+            paymentLauncher: (uri) async {
+              launched = uri;
+              return true;
+            },
+            refreshInterval: const Duration(days: 1),
+          ),
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('masha-pay-button')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(source.createCalls, 1);
+    expect(launched.toString(), 'https://yookassa.test/pay/order-01');
+    expect(find.text('Страница ЮKassa открыта. Ожидаю подтверждение оплаты.'),
+        findsOneWidget);
 
     await tester.pumpWidget(const SizedBox.shrink());
   });

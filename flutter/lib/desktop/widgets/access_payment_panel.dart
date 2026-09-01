@@ -3,17 +3,20 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_hbb/models/masha_access_status.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class MashaAccessPaymentPanel extends StatefulWidget {
   const MashaAccessPaymentPanel({
     super.key,
     required this.operatorIdLoader,
     this.source,
+    this.paymentLauncher,
     this.refreshInterval = const Duration(seconds: 30),
   });
 
   final Future<String> Function() operatorIdLoader;
   final MashaAccessStatusSource? source;
+  final Future<bool> Function(Uri uri)? paymentLauncher;
   final Duration refreshInterval;
 
   @override
@@ -26,10 +29,16 @@ class _MashaAccessPaymentPanelState extends State<MashaAccessPaymentPanel> {
   late final bool _ownsSource;
   Timer? _refreshTimer;
   Timer? _clockTimer;
+  Timer? _paymentPollTimer;
   MashaAccessStatus? _status;
   DateTime? _receivedAt;
   String? _error;
+  String? _paymentMessage;
+  String? _activePaymentOrderId;
   bool _loading = true;
+  bool _paymentLoading = false;
+  bool _paymentSyncing = false;
+  int _paymentPollCount = 0;
 
   @override
   void initState() {
@@ -47,6 +56,7 @@ class _MashaAccessPaymentPanelState extends State<MashaAccessPaymentPanel> {
   void dispose() {
     _refreshTimer?.cancel();
     _clockTimer?.cancel();
+    _paymentPollTimer?.cancel();
     if (_ownsSource) _source.close();
     super.dispose();
   }
@@ -69,6 +79,93 @@ class _MashaAccessPaymentPanelState extends State<MashaAccessPaymentPanel> {
         _error = 'Не удалось получить статус с сервера';
         _loading = false;
       });
+    }
+  }
+
+  Future<void> _pay() async {
+    if (_paymentLoading || !mounted) return;
+    setState(() {
+      _paymentLoading = true;
+      _paymentMessage = null;
+    });
+    try {
+      final operatorId = await widget.operatorIdLoader();
+      final payment = await _source.createPayment(operatorId);
+      final rawUrl = payment.confirmationUrl;
+      final uri = rawUrl == null ? null : Uri.tryParse(rawUrl);
+      if (uri == null || !uri.hasScheme) {
+        throw StateError('payment confirmation url is missing');
+      }
+      final launcher = widget.paymentLauncher ??
+          (Uri target) =>
+              launchUrl(target, mode: LaunchMode.externalApplication);
+      if (!await launcher(uri)) {
+        throw StateError('failed to open payment page');
+      }
+      if (!mounted) return;
+      setState(() {
+        _activePaymentOrderId = payment.paymentOrderId;
+        _paymentMessage =
+            'Страница ЮKassa открыта. Ожидаю подтверждение оплаты.';
+      });
+      _startPaymentPolling();
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _paymentMessage = 'Не удалось создать платёж. Оплата пока недоступна.';
+      });
+    } finally {
+      if (mounted) setState(() => _paymentLoading = false);
+    }
+  }
+
+  void _startPaymentPolling() {
+    _paymentPollTimer?.cancel();
+    _paymentPollCount = 0;
+    _paymentPollTimer = Timer.periodic(
+      const Duration(seconds: 10),
+      (_) => _syncPayment(),
+    );
+  }
+
+  Future<void> _syncPayment() async {
+    final paymentOrderId = _activePaymentOrderId;
+    if (paymentOrderId == null || _paymentSyncing) return;
+    _paymentSyncing = true;
+    _paymentPollCount += 1;
+    try {
+      final payment = await _source.syncPayment(paymentOrderId);
+      await _refresh();
+      if (!mounted) return;
+      if (payment.status == 'succeeded') {
+        _paymentPollTimer?.cancel();
+        setState(() {
+          _activePaymentOrderId = null;
+          _paymentMessage = 'Оплата подтверждена. Доступ обновлён.';
+        });
+      } else if (payment.status == 'canceled') {
+        _paymentPollTimer?.cancel();
+        setState(() {
+          _activePaymentOrderId = null;
+          _paymentMessage = 'Платёж отменён.';
+        });
+      } else if (_paymentPollCount >= 30) {
+        _paymentPollTimer?.cancel();
+        setState(() {
+          _paymentMessage =
+              'Платёж ещё не подтверждён. Нажми «Обновить» позже.';
+        });
+      }
+    } catch (_) {
+      if (mounted && _paymentPollCount >= 30) {
+        _paymentPollTimer?.cancel();
+        setState(() {
+          _paymentMessage =
+              'Не удалось проверить платёж. Нажми «Обновить» позже.';
+        });
+      }
+    } finally {
+      _paymentSyncing = false;
     }
   }
 
@@ -183,6 +280,36 @@ class _MashaAccessPaymentPanelState extends State<MashaAccessPaymentPanel> {
         _row('Текущий статус', status.accessLabel,
             valueColor: accent, valueKey: const Key('masha-access-status')),
         _row('Источник права', status.sourceLabel),
+        if (status.amountDueMinor > 0)
+          Padding(
+            padding: const EdgeInsets.only(top: 11),
+            child: SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                key: const Key('masha-pay-button'),
+                onPressed: _paymentLoading ? null : _pay,
+                icon: _paymentLoading
+                    ? const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.payment, size: 18),
+                label: Text(_paymentLoading
+                    ? 'Создание платежа...'
+                    : 'Оплатить ${status.debtLabel}'),
+              ),
+            ),
+          ),
+        if (_paymentMessage != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 7),
+            child: Text(
+              _paymentMessage!,
+              key: const Key('masha-payment-message'),
+              style: const TextStyle(fontSize: 10.5),
+            ),
+          ),
         if (_error != null)
           Padding(
             padding: const EdgeInsets.only(top: 7),
