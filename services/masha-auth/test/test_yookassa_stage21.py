@@ -101,6 +101,30 @@ class YooKassaStage21Tests(unittest.TestCase):
         with self.auth.dbc() as connection:
             self.assertEqual(connection.execute('SELECT count(*) FROM payment_orders').fetchone()[0], 0)
 
+
+    def test_uncertain_create_retry_reuses_same_idempotence_key(self):
+        self.set_debt(seconds=3600)
+        calls = []
+        def uncertain_then_success(method, path, payload=None, idempotence_key=None):
+            calls.append((idempotence_key, json.dumps(payload, sort_keys=True)))
+            if len(calls) == 1:
+                raise self.auth.PaymentError(503, 'provider_unavailable', retryable=True)
+            return self.fake_create_api(method, path, payload, idempotence_key)
+        with mock.patch.object(self.auth, 'yookassa_api', side_effect=uncertain_then_success):
+            with self.assertRaises(self.auth.PaymentError) as ctx:
+                self.auth.create_yookassa_payment({'operator_id': 'operator-pay'})
+            self.assertTrue(ctx.exception.retryable)
+            second = self.auth.create_yookassa_payment({'operator_id': 'operator-pay'})
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[0], calls[1])
+        self.assertTrue(second['reused'])
+        self.assertEqual(second['provider_payment_id'], 'yk-payment-1')
+        with self.auth.dbc() as connection:
+            rows = connection.execute('SELECT count(*) FROM payment_orders').fetchone()[0]
+            status = connection.execute('SELECT status FROM payment_orders').fetchone()[0]
+        self.assertEqual(rows, 1)
+        self.assertEqual(status, 'pending')
+
     def test_verified_success_webhook_settles_and_restores_access(self):
         self.set_debt()
         with mock.patch.object(self.auth, 'yookassa_api', side_effect=self.fake_create_api):

@@ -103,7 +103,10 @@ def init_db():
         c.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_session_binding ON usage_sessions(operator_id,session_id)')
         c.execute("CREATE TABLE IF NOT EXISTS grant_consumption(consumption_id TEXT PRIMARY KEY,grant_id TEXT NOT NULL,lease_id TEXT NOT NULL UNIQUE,session_id TEXT NOT NULL,seconds INTEGER NOT NULL CHECK(seconds>=0),idempotency_key TEXT NOT NULL UNIQUE,recorded_at INTEGER NOT NULL,updated_at INTEGER NOT NULL)")
         c.execute('CREATE INDEX IF NOT EXISTS idx_grant_consumption_grant ON grant_consumption(grant_id)')
-        c.execute("CREATE TABLE IF NOT EXISTS payment_orders(payment_order_id TEXT PRIMARY KEY,provider TEXT NOT NULL,provider_payment_id TEXT UNIQUE,operator_id TEXT NOT NULL,amount_minor INTEGER NOT NULL CHECK(amount_minor>0),currency TEXT NOT NULL,billable_seconds_snapshot INTEGER NOT NULL CHECK(billable_seconds_snapshot>=0),idempotence_key TEXT NOT NULL UNIQUE,status TEXT NOT NULL CHECK(status IN ('creating','pending','succeeded','canceled','failed')),confirmation_url TEXT,provider_payload_json TEXT,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,settled_at INTEGER)")
+        c.execute("CREATE TABLE IF NOT EXISTS payment_orders(payment_order_id TEXT PRIMARY KEY,provider TEXT NOT NULL,provider_payment_id TEXT UNIQUE,operator_id TEXT NOT NULL,amount_minor INTEGER NOT NULL CHECK(amount_minor>0),currency TEXT NOT NULL,billable_seconds_snapshot INTEGER NOT NULL CHECK(billable_seconds_snapshot>=0),idempotence_key TEXT NOT NULL UNIQUE,status TEXT NOT NULL CHECK(status IN ('creating','pending','succeeded','canceled','failed')),confirmation_url TEXT,request_payload_json TEXT,provider_payload_json TEXT,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,settled_at INTEGER)")
+        payment_order_columns=table_columns(c,'payment_orders')
+        if 'request_payload_json' not in payment_order_columns:
+            c.execute('ALTER TABLE payment_orders ADD COLUMN request_payload_json TEXT')
         c.execute('CREATE INDEX IF NOT EXISTS idx_payment_orders_operator ON payment_orders(operator_id,created_at)')
         c.execute("CREATE TABLE IF NOT EXISTS payment_events(event_id TEXT PRIMARY KEY,provider TEXT NOT NULL,event_type TEXT NOT NULL,provider_object_id TEXT NOT NULL,payload_json TEXT NOT NULL,received_at INTEGER NOT NULL,verified_at INTEGER,processing_status TEXT NOT NULL,result_json TEXT)")
         c.execute('CREATE INDEX IF NOT EXISTS idx_payment_events_object ON payment_events(provider,provider_object_id)')
@@ -353,16 +356,28 @@ def create_yookassa_payment(req):
         amount_minor=int(account['amount_due_minor'] or 0); currency=account['currency'] or 'RUB'
         snapshot=int(account['billable_seconds'] or 0)
         if amount_minor<=0: raise PaymentError(409,'nothing_to_pay')
-        existing=c.execute("SELECT * FROM payment_orders WHERE operator_id=? AND amount_minor=? AND billable_seconds_snapshot=? AND status='pending' AND confirmation_url IS NOT NULL AND updated_at>=? ORDER BY created_at DESC LIMIT 1",(operator_id,amount_minor,snapshot,now-1800)).fetchone()
-        if existing: return _payment_row_payload(existing,True)
-        receipt=_payment_receipt(req,amount_minor,currency,cfg)
-        payment_order_id=secrets.token_urlsafe(18); idempotence_key=secrets.token_hex(16)
-        c.execute("INSERT INTO payment_orders(payment_order_id,provider,provider_payment_id,operator_id,amount_minor,currency,billable_seconds_snapshot,idempotence_key,status,created_at,updated_at) VALUES(?,'yookassa',NULL,?,?,?,?,?,'creating',?,?)",(payment_order_id,operator_id,amount_minor,currency,snapshot,idempotence_key,now,now))
-    payload={'amount':{'value':money_minor_to_value(amount_minor),'currency':currency},'capture':True,'confirmation':{'type':'redirect','return_url':cfg['return_url']},'description':f'?????? ?????????? ??????? ????, ???????? {operator_id}'[:128],'metadata':{'operator_id':operator_id,'payment_order_id':payment_order_id,'billable_seconds_snapshot':str(snapshot)}}
-    if receipt is not None: payload['receipt']=receipt
+        pending=c.execute("SELECT * FROM payment_orders WHERE operator_id=? AND amount_minor=? AND billable_seconds_snapshot=? AND status='pending' AND confirmation_url IS NOT NULL AND updated_at>=? ORDER BY created_at DESC LIMIT 1",(operator_id,amount_minor,snapshot,now-1800)).fetchone()
+        if pending: return _payment_row_payload(pending,True)
+        creating=c.execute("SELECT * FROM payment_orders WHERE operator_id=? AND amount_minor=? AND billable_seconds_snapshot=? AND status='creating' AND request_payload_json IS NOT NULL AND created_at>=? ORDER BY created_at DESC LIMIT 1",(operator_id,amount_minor,snapshot,now-86400)).fetchone()
+        if creating:
+            payment_order_id=creating['payment_order_id']; idempotence_key=creating['idempotence_key']
+            try: payload=json.loads(creating['request_payload_json'])
+            except Exception: raise PaymentError(500,'stored_payment_request_invalid')
+            if not isinstance(payload,dict): raise PaymentError(500,'stored_payment_request_invalid')
+        else:
+            receipt=_payment_receipt(req,amount_minor,currency,cfg)
+            payment_order_id=secrets.token_urlsafe(18); idempotence_key=secrets.token_hex(16)
+            payload={'amount':{'value':money_minor_to_value(amount_minor),'currency':currency},'capture':True,'confirmation':{'type':'redirect','return_url':cfg['return_url']},'description':f'?????? ?????????? ??????? ????, ???????? {operator_id}'[:128],'metadata':{'operator_id':operator_id,'payment_order_id':payment_order_id,'billable_seconds_snapshot':str(snapshot)}}
+            if receipt is not None: payload['receipt']=receipt
+            request_payload_json=json.dumps(payload,ensure_ascii=False,separators=(',',':'))
+            c.execute("INSERT INTO payment_orders(payment_order_id,provider,provider_payment_id,operator_id,amount_minor,currency,billable_seconds_snapshot,idempotence_key,status,request_payload_json,created_at,updated_at) VALUES(?,'yookassa',NULL,?,?,?,?,?,'creating',?,?,?)",(payment_order_id,operator_id,amount_minor,currency,snapshot,idempotence_key,request_payload_json,now,now))
     try: provider=yookassa_api('POST','/payments',payload,idempotence_key)
-    except PaymentError:
-        with dbc() as c: c.execute("UPDATE payment_orders SET status='failed',updated_at=? WHERE payment_order_id=? AND provider_payment_id IS NULL",(int(time.time()),payment_order_id))
+    except PaymentError as exc:
+        with dbc() as c:
+            if exc.retryable:
+                c.execute("UPDATE payment_orders SET updated_at=? WHERE payment_order_id=? AND provider_payment_id IS NULL",(int(time.time()),payment_order_id))
+            else:
+                c.execute("UPDATE payment_orders SET status='failed',updated_at=? WHERE payment_order_id=? AND provider_payment_id IS NULL",(int(time.time()),payment_order_id))
         raise
     provider_id=provider.get('id'); provider_status=provider.get('status')
     if not isinstance(provider_id,str) or not provider_id or provider_status not in ('pending','succeeded','canceled','waiting_for_capture'):
@@ -370,6 +385,8 @@ def create_yookassa_payment(req):
     try: provider_amount=money_value_to_minor(provider.get('amount',{}).get('value'))
     except Exception as exc: raise PaymentError(502,'provider_invalid_response',retryable=True) from exc
     if provider_amount!=amount_minor or provider.get('amount',{}).get('currency')!=currency: raise PaymentError(502,'provider_amount_mismatch')
+    metadata=provider.get('metadata') or {}
+    if metadata.get('operator_id')!=operator_id or metadata.get('payment_order_id')!=payment_order_id: raise PaymentError(502,'provider_metadata_mismatch')
     confirmation_url=(provider.get('confirmation') or {}).get('confirmation_url')
     local_status='canceled' if provider_status=='canceled' else ('succeeded' if provider_status=='succeeded' and provider.get('paid') is True else 'pending')
     with dbc() as c:
@@ -378,7 +395,7 @@ def create_yookassa_payment(req):
     if local_status=='succeeded':
         reconcile_yookassa_payment(provider)
         with dbc() as c: row=c.execute('SELECT * FROM payment_orders WHERE payment_order_id=?',(payment_order_id,)).fetchone()
-    return _payment_row_payload(row,False)
+    return _payment_row_payload(row,bool(creating))
 
 def _verify_provider_matches_order(provider,order):
     amount=provider.get('amount') or {}; metadata=provider.get('metadata') or {}
