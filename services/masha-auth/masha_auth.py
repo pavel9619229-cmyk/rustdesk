@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 import argparse, base64, hashlib, json, logging, os, secrets, sqlite3, ssl, time
+import urllib.error, urllib.request
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -101,6 +103,10 @@ def init_db():
         c.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_session_binding ON usage_sessions(operator_id,session_id)')
         c.execute("CREATE TABLE IF NOT EXISTS grant_consumption(consumption_id TEXT PRIMARY KEY,grant_id TEXT NOT NULL,lease_id TEXT NOT NULL UNIQUE,session_id TEXT NOT NULL,seconds INTEGER NOT NULL CHECK(seconds>=0),idempotency_key TEXT NOT NULL UNIQUE,recorded_at INTEGER NOT NULL,updated_at INTEGER NOT NULL)")
         c.execute('CREATE INDEX IF NOT EXISTS idx_grant_consumption_grant ON grant_consumption(grant_id)')
+        c.execute("CREATE TABLE IF NOT EXISTS payment_orders(payment_order_id TEXT PRIMARY KEY,provider TEXT NOT NULL,provider_payment_id TEXT UNIQUE,operator_id TEXT NOT NULL,amount_minor INTEGER NOT NULL CHECK(amount_minor>0),currency TEXT NOT NULL,billable_seconds_snapshot INTEGER NOT NULL CHECK(billable_seconds_snapshot>=0),idempotence_key TEXT NOT NULL UNIQUE,status TEXT NOT NULL CHECK(status IN ('creating','pending','succeeded','canceled','failed')),confirmation_url TEXT,provider_payload_json TEXT,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,settled_at INTEGER)")
+        c.execute('CREATE INDEX IF NOT EXISTS idx_payment_orders_operator ON payment_orders(operator_id,created_at)')
+        c.execute("CREATE TABLE IF NOT EXISTS payment_events(event_id TEXT PRIMARY KEY,provider TEXT NOT NULL,event_type TEXT NOT NULL,provider_object_id TEXT NOT NULL,payload_json TEXT NOT NULL,received_at INTEGER NOT NULL,verified_at INTEGER,processing_status TEXT NOT NULL,result_json TEXT)")
+        c.execute('CREATE INDEX IF NOT EXISTS idx_payment_events_object ON payment_events(provider,provider_object_id)')
         c.execute("INSERT OR IGNORE INTO usage_sessions(usage_id,lease_id,session_id,operator_id,target_id,ticket_jti,grant_id,started_at,last_heartbeat_at,ended_at,duration_seconds,accounted_seconds,close_reason) SELECT lease_id,lease_id,session_id,operator_id,target_id,jti,grant_id,started_at,last_heartbeat,finished_at,COALESCE(duration_seconds,0),COALESCE(duration_seconds,0),finish_reason FROM leases")
         for row in c.execute("SELECT operator_id,valid_until FROM operators o WHERE access_status='active' AND NOT EXISTS(SELECT 1 FROM access_grants g WHERE g.operator_id=o.operator_id)").fetchall():
             grant_id='legacy-admin:'+row['operator_id']
@@ -242,6 +248,224 @@ def access_status(operator_id,now=None):
             warning_at=int(account['grace_until'])-int(policy['warning_seconds'])
             warning=account['billing_status']!='blocked' and seconds_until_block<=int(policy['warning_seconds'])
         return {'allowed':reason is None,'reason':'allowed' if reason is None else reason,'policy_mode':policy['mode'] if policy else None,'grant_id':grant['grant_id'] if grant else None,'grant_source':grant['source_type'] if grant else None,'balance_seconds':int(balance or 0),'valid_until':grant['expires_at'] if grant else None,'billing_status':account['billing_status'] if account else None,'amount_due_minor':int(account['amount_due_minor'] or 0) if account else 0,'currency':account['currency'] if account else 'RUB','due_at':account['due_at'] if account else None,'grace_until':account['grace_until'] if account else None,'blocked_at':account['blocked_at'] if account else None,'warning_at':warning_at,'warning_10_minutes':warning,'seconds_until_block':seconds_until_block,'policy_id':policy['policy_id'] if policy else None,'rate_minor_per_hour':int(policy['rate_minor_per_hour']) if policy else None,'payment_due_seconds':int(policy['payment_due_seconds']) if policy else None,'grace_seconds':int(policy['grace_seconds']) if policy else None,'warning_seconds':int(policy['warning_seconds']) if policy else None,'billable_seconds':int(account['billable_seconds'] or 0) if account else 0,'server_time':now}
+
+
+class PaymentError(RuntimeError):
+    def __init__(self,http_status,reason,retryable=False):
+        super().__init__(reason)
+        self.http_status=int(http_status)
+        self.reason=str(reason)
+        self.retryable=bool(retryable)
+
+def yookassa_config():
+    try: timeout=max(2,min(int(os.getenv('YOOKASSA_TIMEOUT_SECONDS','10')),30))
+    except ValueError: timeout=10
+    public_base=os.getenv('MASHA_PUBLIC_BASE_URL','').strip().rstrip('/')
+    return_url=os.getenv('YOOKASSA_RETURN_URL','').strip()
+    if not return_url and public_base:
+        return_url=public_base+'/v1/payments/return'
+    return {
+        'api_base':os.getenv('YOOKASSA_API_BASE','https://api.yookassa.ru/v3').strip().rstrip('/'),
+        'shop_id':os.getenv('YOOKASSA_SHOP_ID','').strip(),
+        'secret_key':os.getenv('YOOKASSA_SECRET_KEY','').strip(),
+        'return_url':return_url,
+        'timeout':timeout,
+        'receipt_mode':os.getenv('YOOKASSA_RECEIPT_MODE','none').strip().lower(),
+        'vat_code':os.getenv('YOOKASSA_VAT_CODE','').strip(),
+        'tax_system_code':os.getenv('YOOKASSA_TAX_SYSTEM_CODE','').strip(),
+    }
+
+def yookassa_ready():
+    cfg=yookassa_config()
+    return bool(cfg['shop_id'] and cfg['secret_key'] and cfg['return_url'])
+
+def money_minor_to_value(amount_minor):
+    amount_minor=int(amount_minor)
+    return f'{amount_minor//100}.{amount_minor%100:02d}'
+
+def money_value_to_minor(value):
+    try: amount=Decimal(str(value))
+    except (InvalidOperation,ValueError,TypeError) as exc: raise ValueError('invalid money value') from exc
+    minor=amount*100
+    if minor!=minor.to_integral_value(): raise ValueError('money value has sub-kopeck precision')
+    return int(minor)
+
+def yookassa_api(method,path,payload=None,idempotence_key=None):
+    cfg=yookassa_config()
+    if not cfg['shop_id'] or not cfg['secret_key']:
+        raise PaymentError(503,'provider_not_configured')
+    token=base64.b64encode(f"{cfg['shop_id']}:{cfg['secret_key']}".encode()).decode()
+    headers={'Authorization':'Basic '+token,'Accept':'application/json'}
+    data=None
+    if payload is not None:
+        data=json.dumps(payload,separators=(',',':'),ensure_ascii=False).encode()
+        headers['Content-Type']='application/json'
+    if idempotence_key: headers['Idempotence-Key']=idempotence_key
+    request=urllib.request.Request(cfg['api_base']+'/'+path.lstrip('/'),data=data,headers=headers,method=method)
+    try:
+        with urllib.request.urlopen(request,timeout=cfg['timeout']) as response:
+            raw=response.read()
+    except urllib.error.HTTPError as exc:
+        raw=exc.read(4096).decode(errors='replace')
+        LOG.warning('YooKassa HTTP error status=%s body=%s',exc.code,raw[:500])
+        raise PaymentError(502,'provider_http_error',retryable=exc.code>=500) from exc
+    except (urllib.error.URLError,TimeoutError,OSError) as exc:
+        LOG.warning('YooKassa unavailable: %s',type(exc).__name__)
+        raise PaymentError(503,'provider_unavailable',retryable=True) from exc
+    try: result=json.loads(raw or b'{}')
+    except Exception as exc: raise PaymentError(502,'provider_invalid_response',retryable=True) from exc
+    if not isinstance(result,dict): raise PaymentError(502,'provider_invalid_response',retryable=True)
+    return result
+
+def yookassa_get_payment(provider_payment_id):
+    return yookassa_api('GET','/payments/'+provider_payment_id)
+
+def _payment_row_payload(row,reused=False):
+    return {'payment_order_id':row['payment_order_id'],'provider':'yookassa','provider_payment_id':row['provider_payment_id'],'status':row['status'],'amount_minor':int(row['amount_minor']),'currency':row['currency'],'confirmation_url':row['confirmation_url'],'reused':bool(reused),'created_at':int(row['created_at']),'settled_at':row['settled_at']}
+
+def _validate_receipt_email(value):
+    return isinstance(value,str) and 3<=len(value)<=254 and '@' in value and not any(ch.isspace() for ch in value)
+
+def _payment_receipt(req,amount_minor,currency,cfg):
+    if cfg['receipt_mode'] in ('','none','off','disabled'): return None
+    if cfg['receipt_mode']!='yookassa': raise PaymentError(503,'receipt_mode_invalid')
+    email=req.get('receipt_email','')
+    if not _validate_receipt_email(email): raise PaymentError(400,'receipt_email_required')
+    try: vat_code=int(cfg['vat_code'])
+    except ValueError as exc: raise PaymentError(503,'receipt_vat_not_configured') from exc
+    if vat_code<1 or vat_code>12: raise PaymentError(503,'receipt_vat_not_configured')
+    receipt={'customer':{'email':email.strip()},'items':[{'description':'????????? ?????? ????','quantity':1,'amount':{'value':money_minor_to_value(amount_minor),'currency':currency},'vat_code':vat_code,'payment_mode':'full_payment','payment_subject':'service'}],'internet':True}
+    if cfg['tax_system_code']:
+        try: receipt['tax_system_code']=int(cfg['tax_system_code'])
+        except ValueError as exc: raise PaymentError(503,'receipt_tax_system_invalid') from exc
+    return receipt
+
+def create_yookassa_payment(req):
+    cfg=yookassa_config()
+    if not (cfg['shop_id'] and cfg['secret_key'] and cfg['return_url']): raise PaymentError(503,'provider_not_configured')
+    operator_id=req.get('operator_id','')
+    if not isinstance(operator_id,str) or not operator_id.strip() or len(operator_id)>256: raise PaymentError(400,'invalid_operator_id')
+    operator_id=operator_id.strip(); now=int(time.time())
+    with dbc() as c:
+        policy=policy_for_operator(c,operator_id,now)
+        account=refresh_billing_account(c,operator_id,now)
+        if not policy or not account: raise PaymentError(409,'postpaid_not_enabled')
+        amount_minor=int(account['amount_due_minor'] or 0); currency=account['currency'] or 'RUB'
+        snapshot=int(account['billable_seconds'] or 0)
+        if amount_minor<=0: raise PaymentError(409,'nothing_to_pay')
+        existing=c.execute("SELECT * FROM payment_orders WHERE operator_id=? AND amount_minor=? AND billable_seconds_snapshot=? AND status='pending' AND confirmation_url IS NOT NULL AND updated_at>=? ORDER BY created_at DESC LIMIT 1",(operator_id,amount_minor,snapshot,now-1800)).fetchone()
+        if existing: return _payment_row_payload(existing,True)
+        receipt=_payment_receipt(req,amount_minor,currency,cfg)
+        payment_order_id=secrets.token_urlsafe(18); idempotence_key=secrets.token_hex(16)
+        c.execute("INSERT INTO payment_orders(payment_order_id,provider,provider_payment_id,operator_id,amount_minor,currency,billable_seconds_snapshot,idempotence_key,status,created_at,updated_at) VALUES(?,'yookassa',NULL,?,?,?,?,?,'creating',?,?)",(payment_order_id,operator_id,amount_minor,currency,snapshot,idempotence_key,now,now))
+    payload={'amount':{'value':money_minor_to_value(amount_minor),'currency':currency},'capture':True,'confirmation':{'type':'redirect','return_url':cfg['return_url']},'description':f'?????? ?????????? ??????? ????, ???????? {operator_id}'[:128],'metadata':{'operator_id':operator_id,'payment_order_id':payment_order_id,'billable_seconds_snapshot':str(snapshot)}}
+    if receipt is not None: payload['receipt']=receipt
+    try: provider=yookassa_api('POST','/payments',payload,idempotence_key)
+    except PaymentError:
+        with dbc() as c: c.execute("UPDATE payment_orders SET status='failed',updated_at=? WHERE payment_order_id=? AND provider_payment_id IS NULL",(int(time.time()),payment_order_id))
+        raise
+    provider_id=provider.get('id'); provider_status=provider.get('status')
+    if not isinstance(provider_id,str) or not provider_id or provider_status not in ('pending','succeeded','canceled','waiting_for_capture'):
+        raise PaymentError(502,'provider_invalid_response',retryable=True)
+    try: provider_amount=money_value_to_minor(provider.get('amount',{}).get('value'))
+    except Exception as exc: raise PaymentError(502,'provider_invalid_response',retryable=True) from exc
+    if provider_amount!=amount_minor or provider.get('amount',{}).get('currency')!=currency: raise PaymentError(502,'provider_amount_mismatch')
+    confirmation_url=(provider.get('confirmation') or {}).get('confirmation_url')
+    local_status='canceled' if provider_status=='canceled' else ('succeeded' if provider_status=='succeeded' and provider.get('paid') is True else 'pending')
+    with dbc() as c:
+        c.execute('UPDATE payment_orders SET provider_payment_id=?,status=?,confirmation_url=?,provider_payload_json=?,updated_at=? WHERE payment_order_id=?',(provider_id,local_status,confirmation_url,json.dumps(provider,ensure_ascii=False,separators=(',',':')),int(time.time()),payment_order_id))
+        row=c.execute('SELECT * FROM payment_orders WHERE payment_order_id=?',(payment_order_id,)).fetchone()
+    if local_status=='succeeded':
+        reconcile_yookassa_payment(provider)
+        with dbc() as c: row=c.execute('SELECT * FROM payment_orders WHERE payment_order_id=?',(payment_order_id,)).fetchone()
+    return _payment_row_payload(row,False)
+
+def _verify_provider_matches_order(provider,order):
+    amount=provider.get('amount') or {}; metadata=provider.get('metadata') or {}
+    try: provider_minor=money_value_to_minor(amount.get('value'))
+    except Exception as exc: raise PaymentError(409,'payment_amount_invalid') from exc
+    if provider_minor!=int(order['amount_minor']) or amount.get('currency')!=order['currency']: raise PaymentError(409,'payment_amount_mismatch')
+    if metadata.get('operator_id')!=order['operator_id'] or metadata.get('payment_order_id')!=order['payment_order_id']: raise PaymentError(409,'payment_metadata_mismatch')
+
+def reconcile_yookassa_payment(provider):
+    provider_id=provider.get('id')
+    if not isinstance(provider_id,str) or not provider_id: raise PaymentError(400,'payment_id_missing')
+    now=int(time.time())
+    with dbc() as c:
+        order=c.execute("SELECT * FROM payment_orders WHERE provider='yookassa' AND provider_payment_id=?",(provider_id,)).fetchone()
+        if not order: return {'processed':False,'reason':'unknown_payment','provider_payment_id':provider_id}
+        _verify_provider_matches_order(provider,order)
+        provider_status=provider.get('status')
+        if provider_status=='canceled':
+            c.execute("UPDATE payment_orders SET status='canceled',provider_payload_json=?,updated_at=? WHERE payment_order_id=?",(json.dumps(provider,ensure_ascii=False,separators=(',',':')),now,order['payment_order_id']))
+            return {'processed':False,'reason':'payment_canceled','payment_order_id':order['payment_order_id']}
+        if provider_status!='succeeded' or provider.get('paid') is not True:
+            c.execute("UPDATE payment_orders SET status='pending',provider_payload_json=?,updated_at=? WHERE payment_order_id=? AND settled_at IS NULL",(json.dumps(provider,ensure_ascii=False,separators=(',',':')),now,order['payment_order_id']))
+            return {'processed':False,'reason':'payment_not_succeeded','payment_order_id':order['payment_order_id']}
+        if order['settled_at'] is not None: return {'processed':False,'reason':'already_settled','payment_order_id':order['payment_order_id']}
+        c.execute('BEGIN IMMEDIATE')
+        order=c.execute('SELECT * FROM payment_orders WHERE payment_order_id=?',(order['payment_order_id'],)).fetchone()
+        if order['settled_at'] is not None: return {'processed':False,'reason':'already_settled','payment_order_id':order['payment_order_id']}
+        account=c.execute('SELECT * FROM billing_accounts WHERE operator_id=?',(order['operator_id'],)).fetchone()
+        policy=policy_for_operator(c,order['operator_id'],now)
+        if not account or not policy: raise PaymentError(409,'postpaid_account_missing')
+        remaining_seconds=max(0,int(account['billable_seconds'] or 0)-int(order['billable_seconds_snapshot']))
+        remaining_minor=remaining_seconds*int(policy['rate_minor_per_hour'])//3600
+        if remaining_minor>0:
+            billing_status='payment_due'; due_at=now+int(policy['payment_due_seconds']); grace_until=due_at+int(policy['grace_seconds'])
+        else:
+            billing_status='current'; due_at=None; grace_until=None
+        c.execute('UPDATE billing_accounts SET billing_status=?,amount_due_minor=?,billable_seconds=?,due_at=?,grace_until=?,blocked_at=NULL,updated_at=? WHERE operator_id=?',(billing_status,remaining_minor,remaining_seconds,due_at,grace_until,now,order['operator_id']))
+        c.execute("UPDATE payment_orders SET status='succeeded',provider_payload_json=?,updated_at=?,settled_at=? WHERE payment_order_id=?",(json.dumps(provider,ensure_ascii=False,separators=(',',':')),now,now,order['payment_order_id']))
+        operator_id=order['operator_id']; payment_order_id=order['payment_order_id']
+    return {'processed':True,'reason':'payment_applied','payment_order_id':payment_order_id,'operator_id':operator_id,'access':access_status(operator_id)}
+
+def payment_order_status(payment_order_id):
+    if not isinstance(payment_order_id,str) or not payment_order_id or len(payment_order_id)>256: raise PaymentError(400,'invalid_payment_order_id')
+    with dbc() as c:
+        row=c.execute('SELECT * FROM payment_orders WHERE payment_order_id=?',(payment_order_id,)).fetchone()
+    if not row: raise PaymentError(404,'payment_not_found')
+    result=_payment_row_payload(row,False); result['access']=access_status(row['operator_id']); return result
+
+def sync_yookassa_payment(req):
+    payment_order_id=req.get('payment_order_id','')
+    if not isinstance(payment_order_id,str) or not payment_order_id or len(payment_order_id)>256: raise PaymentError(400,'invalid_payment_order_id')
+    with dbc() as c: order=c.execute('SELECT * FROM payment_orders WHERE payment_order_id=?',(payment_order_id,)).fetchone()
+    if not order: raise PaymentError(404,'payment_not_found')
+    if not order['provider_payment_id']: raise PaymentError(409,'payment_not_created')
+    provider=yookassa_get_payment(order['provider_payment_id'])
+    result=reconcile_yookassa_payment(provider); result['payment']=payment_order_status(payment_order_id); return result
+
+def process_yookassa_webhook(body):
+    if body.get('type')!='notification': raise PaymentError(400,'invalid_notification')
+    event=str(body.get('event',''))
+    obj=body.get('object')
+    if not isinstance(obj,dict) or not isinstance(obj.get('id'),str) or not obj.get('id'): raise PaymentError(400,'payment_id_missing')
+    provider_id=obj['id']; event_id='yookassa:'+event+':'+provider_id; now=int(time.time())
+    raw=json.dumps(body,ensure_ascii=False,sort_keys=True,separators=(',',':'))
+    with dbc() as c:
+        existing=c.execute('SELECT processing_status,result_json FROM payment_events WHERE event_id=?',(event_id,)).fetchone()
+        if existing and existing['processing_status'] in ('applied','ignored','rejected'):
+            return {'accepted':True,'duplicate':True,'result':json.loads(existing['result_json'] or '{}')}
+        c.execute("INSERT INTO payment_events(event_id,provider,event_type,provider_object_id,payload_json,received_at,processing_status) VALUES(?,'yookassa',?,?,?,?, 'received') ON CONFLICT(event_id) DO UPDATE SET payload_json=excluded.payload_json,received_at=excluded.received_at",(event_id,event,provider_id,raw,now))
+    if event not in ('payment.succeeded','payment.canceled','payment.waiting_for_capture'):
+        result={'processed':False,'reason':'event_ignored'}
+        with dbc() as c: c.execute("UPDATE payment_events SET processing_status='ignored',result_json=? WHERE event_id=?",(json.dumps(result,separators=(',',':')),event_id))
+        return {'accepted':True,'duplicate':False,'result':result}
+    try: provider=yookassa_get_payment(provider_id)
+    except PaymentError as exc:
+        with dbc() as c: c.execute("UPDATE payment_events SET processing_status='verification_failed',result_json=? WHERE event_id=?",(json.dumps({'reason':exc.reason},separators=(',',':')),event_id))
+        raise
+    if provider.get('id')!=provider_id:
+        result={'processed':False,'reason':'provider_id_mismatch'}; status='rejected'
+    else:
+        try:
+            result=reconcile_yookassa_payment(provider); status='applied' if result.get('processed') or result.get('reason')=='already_settled' else 'ignored'
+        except PaymentError as exc:
+            result={'processed':False,'reason':exc.reason}; status='rejected'
+    with dbc() as c:
+        c.execute('UPDATE payment_events SET verified_at=?,processing_status=?,result_json=? WHERE event_id=?',(int(time.time()),status,json.dumps(result,ensure_ascii=False,separators=(',',':')),event_id))
+    return {'accepted':True,'duplicate':False,'result':result}
 
 def authorize(k,req):
     for f in ('operator_id','target_id','session_id','connection_type','client_version'):
@@ -440,6 +664,11 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(code); self.send_header('Content-Type','application/json; charset=utf-8')
         self.send_header('Content-Length',str(len(b))); self.send_header('Cache-Control','no-store')
         self.end_headers(); self.wfile.write(b)
+    def send_html(self,code,html):
+        b=html.encode('utf-8')
+        self.send_response(code); self.send_header('Content-Type','text/html; charset=utf-8')
+        self.send_header('Content-Length',str(len(b))); self.send_header('Cache-Control','no-store')
+        self.end_headers(); self.wfile.write(b)
     def send_download(self,parsed,send_body=True):
         name=parsed.path.removeprefix('/downloads/')
         digest=DOWNLOAD_FILES.get(name)
@@ -467,37 +696,63 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed=urlparse(self.path)
         if parsed.path=='/health':
-            self.sendj(200,{'status':'ok','service':'masha-auth','version':2})
+            self.sendj(200,{'status':'ok','service':'masha-auth','version':3,'payments_ready':yookassa_ready()})
         elif parsed.path=='/v1/access/status':
             operator_id=parse_qs(parsed.query).get('operator_id',[''])[0].strip()
             if not operator_id or len(operator_id)>256:
                 return self.sendj(400,{'allowed':False,'reason':'invalid_request'})
             self.sendj(200,access_status(operator_id))
+        elif parsed.path=='/v1/payments/status':
+            payment_order_id=parse_qs(parsed.query).get('payment_order_id',[''])[0].strip()
+            try: self.sendj(200,payment_order_status(payment_order_id))
+            except PaymentError as exc: self.sendj(exc.http_status,{'ok':False,'reason':exc.reason})
+        elif parsed.path=='/v1/payments/return':
+            self.send_html(200,'<!doctype html><meta charset="utf-8"><title>???? ? ??????</title><body style="font-family:system-ui;padding:32px"><h2>?????? ??????????????</h2><p>??????? ? ?????????? ????. ?????? ??????? ????????? ????????????? ????? ????????????? ?Kassa.</p><p>??? ???? ????? ???????.</p></body>')
         elif parsed.path.startswith('/downloads/'):
             self.send_download(parsed)
         else:
             self.sendj(404,{'error':'not_found'})
     def do_POST(self):
-        paths=('/v1/session/authorize','/v1/session/lease/start','/v1/session/lease/heartbeat','/v1/session/lease/finish')
-        if self.path not in paths: return self.sendj(404,{'error':'not_found'})
+        parsed=urlparse(self.path); path=parsed.path
+        paths=('/v1/session/authorize','/v1/session/lease/start','/v1/session/lease/heartbeat','/v1/session/lease/finish','/v1/payments/create','/v1/payments/sync','/v1/webhooks/yookassa')
+        if path not in paths: return self.sendj(404,{'error':'not_found'})
         try: n=int(self.headers.get('Content-Length','0'))
         except ValueError: n=0
         if n<=0 or n>MAX_BODY: return self.sendj(400,{'allowed':False,'reason':'invalid_request'})
         try: body=json.loads(self.rfile.read(n).decode())
         except Exception: return self.sendj(400,{'allowed':False,'reason':'invalid_json'})
         if not isinstance(body,dict): return self.sendj(400,{'allowed':False,'reason':'invalid_request'})
-        if self.path=='/v1/session/authorize':
+        if path=='/v1/payments/create':
+            try:
+                result=create_yookassa_payment(body)
+                LOG.info('payment create operator=%r order=%r status=%s',str(body.get('operator_id',''))[:64],result.get('payment_order_id'),result.get('status'))
+                return self.sendj(200,{'ok':True,**result})
+            except PaymentError as exc:
+                LOG.warning('payment create failed operator=%r reason=%s',str(body.get('operator_id',''))[:64],exc.reason)
+                return self.sendj(exc.http_status,{'ok':False,'reason':exc.reason})
+        if path=='/v1/payments/sync':
+            try: return self.sendj(200,{'ok':True,**sync_yookassa_payment(body)})
+            except PaymentError as exc: return self.sendj(exc.http_status,{'ok':False,'reason':exc.reason})
+        if path=='/v1/webhooks/yookassa':
+            try:
+                result=process_yookassa_webhook(body)
+                LOG.info('yookassa webhook event=%r payment=%r result=%r',str(body.get('event',''))[:64],str((body.get('object') or {}).get('id',''))[:64],result.get('result',{}).get('reason'))
+                return self.sendj(200,{'ok':True})
+            except PaymentError as exc:
+                LOG.warning('yookassa webhook failed reason=%s retryable=%s',exc.reason,exc.retryable)
+                return self.sendj(503 if exc.retryable else exc.http_status,{'ok':False,'reason':exc.reason})
+        if path=='/v1/session/authorize':
             ok,reason,ticket,exp=authorize(self.server.signing_key,body)
             LOG.info('authorize operator=%r target=%r allowed=%s reason=%s',str(body.get('operator_id',''))[:64],str(body.get('target_id',''))[:64],ok,reason)
             if not ok: return self.sendj(403,{'allowed':False,'reason':reason})
             return self.sendj(200,{'allowed':True,'ticket':ticket,'expires_at':exp,'ticket_version':1})
-        if self.path.endswith('/start'):
+        if path.endswith('/start'):
             ok,reason,data=lease_start(self.server.signing_key,body)
-        elif self.path.endswith('/heartbeat'):
+        elif path.endswith('/heartbeat'):
             ok,reason,data=lease_action(body)
         else:
             ok,reason,data=lease_action(body,finish=True)
-        LOG.info('lease path=%s id=%r allowed=%s reason=%s',self.path,str(body.get('lease_id',''))[:32],ok,reason)
+        LOG.info('lease path=%s id=%r allowed=%s reason=%s',path,str(body.get('lease_id',''))[:32],ok,reason)
         response={'allowed':ok,'reason':reason}; response.update(data)
         self.sendj(200 if ok else 403,response)
 
