@@ -15,10 +15,16 @@ class YooKassaStage21Tests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.saved_env = dict(os.environ)
         os.environ['MASHA_AUTH_DIR'] = self.temporary.name
-        os.environ['YOOKASSA_SHOP_ID'] = 'test-shop'
-        os.environ['YOOKASSA_SECRET_KEY'] = 'test-secret'
-        os.environ['YOOKASSA_RETURN_URL'] = 'https://pay.example.ru/return'
-        os.environ['YOOKASSA_RECEIPT_MODE'] = 'none'
+        os.environ['MASHA_PUBLIC_BASE_URL'] = 'https://pay.example.ru'
+        os.environ['YOOKASSA_MODE'] = 'test'
+        os.environ['YOOKASSA_TEST_OPERATOR_ID'] = '900000073'
+        os.environ['YOOKASSA_TEST_SHOP_ID'] = 'unit-test-shop'
+        os.environ['YOOKASSA_TEST_SECRET_KEY'] = 'unit-test-placeholder-not-a-key'
+        os.environ['YOOKASSA_RECEIPT_MODE'] = 'yookassa'
+        os.environ['YOOKASSA_RECEIPT_CUSTOMER_EMAIL'] = 'receipt-test@example.invalid'
+        os.environ['YOOKASSA_RECEIPT_VAT_CODE'] = '1'
+        os.environ['YOOKASSA_RECEIPT_PAYMENT_SUBJECT'] = 'unit_test_subject'
+        os.environ['YOOKASSA_RECEIPT_PAYMENT_MODE'] = 'unit_test_mode'
         spec = importlib.util.spec_from_file_location('masha_auth_yk_' + self._testMethodName, SERVICE_FILE)
         self.auth = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.auth)
@@ -31,7 +37,7 @@ class YooKassaStage21Tests(unittest.TestCase):
         os.environ.update(self.saved_env)
         self.temporary.cleanup()
 
-    def set_debt(self, operator_id='operator-pay', seconds=3600, blocked=True):
+    def set_debt(self, operator_id='900000073', seconds=3600, blocked=True):
         self.auth.enable_postpaid(operator_id)
         now = int(self.auth.time.time())
         amount = seconds * 100 // 3600
@@ -80,8 +86,8 @@ class YooKassaStage21Tests(unittest.TestCase):
     def test_create_payment_uses_exact_debt_and_reuses_pending_order(self):
         self.set_debt(seconds=3600)
         with mock.patch.object(self.auth, 'yookassa_api', side_effect=self.fake_create_api) as api:
-            first = self.auth.create_yookassa_payment({'operator_id': 'operator-pay'})
-            second = self.auth.create_yookassa_payment({'operator_id': 'operator-pay'})
+            first = self.auth.create_yookassa_payment({'operator_id': '900000073'})
+            second = self.auth.create_yookassa_payment({'operator_id': '900000073'})
         self.assertFalse(first['reused'])
         self.assertTrue(second['reused'])
         self.assertEqual(first['amount_minor'], 100)
@@ -90,13 +96,13 @@ class YooKassaStage21Tests(unittest.TestCase):
         sent = api.call_args.args[2]
         self.assertEqual(sent['amount'], {'value': '1.00', 'currency': 'RUB'})
         self.assertTrue(sent['capture'])
-        self.assertEqual(sent['metadata']['operator_id'], 'operator-pay')
+        self.assertEqual(sent['metadata']['operator_id'], '900000073')
 
     def test_create_payment_fails_closed_without_credentials(self):
         self.set_debt()
-        os.environ.pop('YOOKASSA_SECRET_KEY')
+        os.environ.pop('YOOKASSA_TEST_SECRET_KEY')
         with self.assertRaises(self.auth.PaymentError) as ctx:
-            self.auth.create_yookassa_payment({'operator_id': 'operator-pay'})
+            self.auth.create_yookassa_payment({'operator_id': '900000073'})
         self.assertEqual((ctx.exception.http_status, ctx.exception.reason), (503, 'provider_not_configured'))
         with self.auth.dbc() as connection:
             self.assertEqual(connection.execute('SELECT count(*) FROM payment_orders').fetchone()[0], 0)
@@ -112,9 +118,9 @@ class YooKassaStage21Tests(unittest.TestCase):
             return self.fake_create_api(method, path, payload, idempotence_key)
         with mock.patch.object(self.auth, 'yookassa_api', side_effect=uncertain_then_success):
             with self.assertRaises(self.auth.PaymentError) as ctx:
-                self.auth.create_yookassa_payment({'operator_id': 'operator-pay'})
+                self.auth.create_yookassa_payment({'operator_id': '900000073'})
             self.assertTrue(ctx.exception.retryable)
-            second = self.auth.create_yookassa_payment({'operator_id': 'operator-pay'})
+            second = self.auth.create_yookassa_payment({'operator_id': '900000073'})
         self.assertEqual(len(calls), 2)
         self.assertEqual(calls[0], calls[1])
         self.assertTrue(second['reused'])
@@ -128,13 +134,13 @@ class YooKassaStage21Tests(unittest.TestCase):
     def test_verified_success_webhook_settles_and_restores_access(self):
         self.set_debt()
         with mock.patch.object(self.auth, 'yookassa_api', side_effect=self.fake_create_api):
-            order = self.auth.create_yookassa_payment({'operator_id': 'operator-pay'})
+            order = self.auth.create_yookassa_payment({'operator_id': '900000073'})
         provider_id = order['provider_payment_id']
         with mock.patch.object(self.auth, 'yookassa_get_payment', return_value=self.succeeded(provider_id)) as verify:
             result = self.auth.process_yookassa_webhook(self.webhook(provider_id))
         self.assertEqual(verify.call_count, 1)
         self.assertEqual(result['result']['reason'], 'payment_applied')
-        status = self.auth.access_status('operator-pay')
+        status = self.auth.access_status('900000073')
         self.assertTrue(status['allowed'])
         self.assertEqual((status['billing_status'], status['amount_due_minor'], status['billable_seconds']), ('current', 0, 0))
         with self.auth.dbc() as connection:
@@ -147,7 +153,7 @@ class YooKassaStage21Tests(unittest.TestCase):
     def test_duplicate_webhook_is_idempotent(self):
         self.set_debt()
         with mock.patch.object(self.auth, 'yookassa_api', side_effect=self.fake_create_api):
-            order = self.auth.create_yookassa_payment({'operator_id': 'operator-pay'})
+            order = self.auth.create_yookassa_payment({'operator_id': '900000073'})
         provider = self.succeeded(order['provider_payment_id'])
         with mock.patch.object(self.auth, 'yookassa_get_payment', return_value=provider) as verify:
             first = self.auth.process_yookassa_webhook(self.webhook(order['provider_payment_id']))
@@ -157,30 +163,30 @@ class YooKassaStage21Tests(unittest.TestCase):
         self.assertEqual(verify.call_count, 1)
         with self.auth.dbc() as connection:
             self.assertEqual(connection.execute('SELECT count(*) FROM payment_events').fetchone()[0], 1)
-            account = connection.execute('SELECT amount_due_minor,billable_seconds FROM billing_accounts WHERE operator_id=?', ('operator-pay',)).fetchone()
+            account = connection.execute('SELECT amount_due_minor,billable_seconds FROM billing_accounts WHERE operator_id=?', ('900000073',)).fetchone()
         self.assertEqual(tuple(account), (0, 0))
 
     def test_spoofed_success_body_does_not_settle_when_provider_is_pending(self):
         self.set_debt()
         with mock.patch.object(self.auth, 'yookassa_api', side_effect=self.fake_create_api):
-            order = self.auth.create_yookassa_payment({'operator_id': 'operator-pay'})
+            order = self.auth.create_yookassa_payment({'operator_id': '900000073'})
         pending = dict(self.created[order['provider_payment_id']])
         with mock.patch.object(self.auth, 'yookassa_get_payment', return_value=pending):
             result = self.auth.process_yookassa_webhook(self.webhook(order['provider_payment_id']))
         self.assertEqual(result['result']['reason'], 'payment_not_succeeded')
-        status = self.auth.access_status('operator-pay')
+        status = self.auth.access_status('900000073')
         self.assertFalse(status['allowed'])
         self.assertEqual((status['billing_status'], status['amount_due_minor']), ('blocked', 100))
 
     def test_amount_mismatch_is_rejected_without_settlement(self):
         self.set_debt()
         with mock.patch.object(self.auth, 'yookassa_api', side_effect=self.fake_create_api):
-            order = self.auth.create_yookassa_payment({'operator_id': 'operator-pay'})
+            order = self.auth.create_yookassa_payment({'operator_id': '900000073'})
         bad = self.succeeded(order['provider_payment_id'], amount_value='2.00')
         with mock.patch.object(self.auth, 'yookassa_get_payment', return_value=bad):
             result = self.auth.process_yookassa_webhook(self.webhook(order['provider_payment_id']))
         self.assertEqual(result['result']['reason'], 'payment_amount_mismatch')
-        status = self.auth.access_status('operator-pay')
+        status = self.auth.access_status('900000073')
         self.assertFalse(status['allowed'])
         with self.auth.dbc() as connection:
             self.assertEqual(connection.execute('SELECT processing_status FROM payment_events').fetchone()[0], 'rejected')
@@ -188,25 +194,25 @@ class YooKassaStage21Tests(unittest.TestCase):
     def test_metadata_mismatch_is_rejected_without_settlement(self):
         self.set_debt()
         with mock.patch.object(self.auth, 'yookassa_api', side_effect=self.fake_create_api):
-            order = self.auth.create_yookassa_payment({'operator_id': 'operator-pay'})
+            order = self.auth.create_yookassa_payment({'operator_id': '900000073'})
         metadata = dict(self.created[order['provider_payment_id']]['metadata'])
         metadata['operator_id'] = 'another-operator'
         bad = self.succeeded(order['provider_payment_id'], metadata=metadata)
         with mock.patch.object(self.auth, 'yookassa_get_payment', return_value=bad):
             result = self.auth.process_yookassa_webhook(self.webhook(order['provider_payment_id']))
         self.assertEqual(result['result']['reason'], 'payment_metadata_mismatch')
-        self.assertEqual(self.auth.access_status('operator-pay')['amount_due_minor'], 100)
+        self.assertEqual(self.auth.access_status('900000073')['amount_due_minor'], 100)
 
     def test_payment_snapshot_preserves_usage_after_order_creation(self):
         self.set_debt(seconds=3600)
         with mock.patch.object(self.auth, 'yookassa_api', side_effect=self.fake_create_api):
-            order = self.auth.create_yookassa_payment({'operator_id': 'operator-pay'})
+            order = self.auth.create_yookassa_payment({'operator_id': '900000073'})
         now = int(self.auth.time.time())
         with self.auth.dbc() as connection:
-            connection.execute("UPDATE billing_accounts SET billable_seconds=5400,amount_due_minor=150,billing_status='blocked',blocked_at=? WHERE operator_id=?", (now, 'operator-pay'))
+            connection.execute("UPDATE billing_accounts SET billable_seconds=5400,amount_due_minor=150,billing_status='blocked',blocked_at=? WHERE operator_id=?", (now, '900000073'))
         with mock.patch.object(self.auth, 'yookassa_get_payment', return_value=self.succeeded(order['provider_payment_id'])):
             self.auth.process_yookassa_webhook(self.webhook(order['provider_payment_id']))
-        status = self.auth.access_status('operator-pay')
+        status = self.auth.access_status('900000073')
         self.assertTrue(status['allowed'])
         self.assertEqual((status['billing_status'], status['amount_due_minor'], status['billable_seconds']), ('payment_due', 50, 1800))
         self.assertGreater(status['due_at'], now)
@@ -214,22 +220,108 @@ class YooKassaStage21Tests(unittest.TestCase):
     def test_sync_reconciles_success_without_waiting_for_webhook(self):
         self.set_debt()
         with mock.patch.object(self.auth, 'yookassa_api', side_effect=self.fake_create_api):
-            order = self.auth.create_yookassa_payment({'operator_id': 'operator-pay'})
+            order = self.auth.create_yookassa_payment({'operator_id': '900000073'})
         with mock.patch.object(self.auth, 'yookassa_get_payment', return_value=self.succeeded(order['provider_payment_id'])):
             result = self.auth.sync_yookassa_payment({'payment_order_id': order['payment_order_id']})
         self.assertEqual(result['reason'], 'payment_applied')
         self.assertEqual(result['payment']['status'], 'succeeded')
         self.assertTrue(result['payment']['access']['allowed'])
 
-    def test_receipt_mode_requires_customer_email_and_configured_vat(self):
-        self.set_debt()
-        os.environ['YOOKASSA_RECEIPT_MODE'] = 'yookassa'
-        os.environ['YOOKASSA_VAT_CODE'] = '11'
-        with mock.patch.object(self.auth, 'yookassa_api', side_effect=self.fake_create_api):
-            with self.assertRaises(self.auth.PaymentError) as ctx:
-                self.auth.create_yookassa_payment({'operator_id': 'operator-pay'})
-        self.assertEqual(ctx.exception.reason, 'receipt_email_required')
+    def test_return_url_is_derived_from_public_https_origin(self):
+        os.environ['YOOKASSA_RETURN_URL'] = 'https://attacker.invalid/ignored'
+        cfg = self.auth.yookassa_config()
+        self.assertEqual(cfg['return_url'], 'https://pay.example.ru/v1/payments/return')
+        self.assertNotIn('YOOKASSA_RETURN_URL', cfg)
+        os.environ['MASHA_PUBLIC_BASE_URL'] = 'http://pay.example.ru'
+        self.assertEqual(self.auth.yookassa_config_error(self.auth.yookassa_config()), 'public_base_not_https')
 
+    def test_payment_return_route_exists(self):
+        server = self.auth.ThreadingHTTPServer(('127.0.0.1', 0), self.auth.Handler)
+        server.signing_key = self.auth.ensure_key()
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            with urllib.request.urlopen(f'http://127.0.0.1:{server.server_port}/v1/payments/return', timeout=5) as response:
+                self.assertEqual(response.status, 200)
+                self.assertIn(b'<!doctype html', response.read().lower())
+        finally:
+            server.shutdown(); server.server_close(); thread.join(timeout=5)
+
+    def test_test_mode_allows_only_reserved_test_operator(self):
+        self.set_debt(operator_id='other-unit-operator')
+        with self.assertRaises(self.auth.PaymentError) as ctx:
+            self.auth.create_yookassa_payment({'operator_id': 'other-unit-operator'})
+        self.assertEqual((ctx.exception.http_status, ctx.exception.reason), (403, 'test_operator_required'))
+        with self.auth.dbc() as connection:
+            self.assertEqual(connection.execute('SELECT count(*) FROM payment_orders').fetchone()[0], 0)
+
+    def test_test_mode_rejects_nonreserved_configured_test_id(self):
+        os.environ['YOOKASSA_TEST_OPERATOR_ID'] = 'another-test-id'
+        cfg = self.auth.yookassa_config()
+        self.assertIn('test_operator_invalid', cfg['errors'])
+        self.assertFalse(self.auth.yookassa_ready())
+        self.assertEqual(self.auth.yookassa_config_error(cfg), 'test_operator_invalid')
+
+    def test_test_mode_rejects_live_and_legacy_credential_slots(self):
+        os.environ['YOOKASSA_LIVE_SHOP_ID'] = 'unit-live-shop'
+        os.environ['YOOKASSA_LIVE_SECRET_KEY'] = 'unit-live-placeholder'
+        cfg = self.auth.yookassa_config()
+        self.assertIn('credential_mode_conflict', cfg['errors'])
+        self.assertFalse(self.auth.yookassa_ready())
+        os.environ.pop('YOOKASSA_LIVE_SHOP_ID')
+        os.environ.pop('YOOKASSA_LIVE_SECRET_KEY')
+        os.environ['YOOKASSA_SHOP_ID'] = 'legacy-slot'
+        self.assertEqual(self.auth.yookassa_config_error(self.auth.yookassa_config()), 'legacy_credentials_forbidden')
+
+    def test_live_mode_uses_only_live_credential_slots(self):
+        os.environ['YOOKASSA_MODE'] = 'live'
+        os.environ['YOOKASSA_LIVE_SHOP_ID'] = 'unit-live-shop'
+        os.environ['YOOKASSA_LIVE_SECRET_KEY'] = 'unit-live-placeholder'
+        self.assertIn('credential_mode_conflict', self.auth.yookassa_config()['errors'])
+        os.environ.pop('YOOKASSA_TEST_SHOP_ID')
+        os.environ.pop('YOOKASSA_TEST_SECRET_KEY')
+        cfg = self.auth.yookassa_config()
+        self.assertEqual((cfg['mode'], cfg['shop_id']), ('live', 'unit-live-shop'))
+        self.assertTrue(self.auth.yookassa_ready())
+        with self.assertRaises(self.auth.PaymentError) as ctx:
+            self.auth.create_yookassa_payment({'operator_id': '900000073'})
+        self.assertEqual((ctx.exception.http_status, ctx.exception.reason), (403, 'test_operator_forbidden'))
+        self.set_debt(operator_id='live-unit-operator')
+        with mock.patch.object(self.auth, 'yookassa_api', side_effect=self.fake_create_api):
+            live_order = self.auth.create_yookassa_payment({'operator_id': 'live-unit-operator'})
+        self.assertEqual(live_order['environment'], 'live')
+
+    def test_payment_records_are_tagged_with_environment(self):
+        self.set_debt()
+        with mock.patch.object(self.auth, 'yookassa_api', side_effect=self.fake_create_api):
+            order = self.auth.create_yookassa_payment({'operator_id': '900000073'})
+        self.assertEqual(order['environment'], 'test')
+        provider = self.succeeded(order['provider_payment_id'])
+        with mock.patch.object(self.auth, 'yookassa_get_payment', return_value=provider):
+            self.auth.process_yookassa_webhook(self.webhook(order['provider_payment_id']))
+        with self.auth.dbc() as connection:
+            order_env = connection.execute('SELECT environment FROM payment_orders').fetchone()[0]
+            event_env = connection.execute('SELECT environment FROM payment_events').fetchone()[0]
+        self.assertEqual((order_env, event_env), ('test', 'test'))
+
+    def test_receipt_configuration_is_fail_closed(self):
+        self.set_debt()
+        required = {
+            'YOOKASSA_RECEIPT_CUSTOMER_EMAIL': 'receipt_email_not_configured',
+            'YOOKASSA_RECEIPT_VAT_CODE': 'receipt_vat_not_configured',
+            'YOOKASSA_RECEIPT_PAYMENT_SUBJECT': 'receipt_payment_subject_not_configured',
+            'YOOKASSA_RECEIPT_PAYMENT_MODE': 'receipt_payment_mode_not_configured',
+        }
+        for name, reason in required.items():
+            with self.subTest(name=name):
+                value = os.environ.pop(name)
+                try:
+                    self.assertFalse(self.auth.yookassa_ready())
+                    with self.assertRaises(self.auth.PaymentError) as ctx:
+                        self.auth.create_yookassa_payment({'operator_id': '900000073'})
+                    self.assertEqual(ctx.exception.reason, reason)
+                finally:
+                    os.environ[name] = value
 
     def test_http_create_and_verified_webhook_flow(self):
         self.set_debt()
@@ -249,7 +341,7 @@ class YooKassaStage21Tests(unittest.TestCase):
                 return response.status, json.load(response)
         try:
             with mock.patch.object(self.auth, 'yookassa_api', side_effect=self.fake_create_api):
-                code, created = post('/v1/payments/create', {'operator_id': 'operator-pay'})
+                code, created = post('/v1/payments/create', {'operator_id': '900000073'})
             self.assertEqual(code, 200)
             self.assertTrue(created['ok'])
             provider_id = created['provider_payment_id']
@@ -257,7 +349,7 @@ class YooKassaStage21Tests(unittest.TestCase):
                 code, webhook = post('/v1/webhooks/yookassa', self.webhook(provider_id))
             self.assertEqual(code, 200)
             self.assertTrue(webhook['ok'])
-            status_url = base + '/v1/access/status?operator_id=operator-pay'
+            status_url = base + '/v1/access/status?operator_id=900000073'
             with urllib.request.urlopen(status_url, timeout=5) as response:
                 status = json.load(response)
             self.assertTrue(status['allowed'])
