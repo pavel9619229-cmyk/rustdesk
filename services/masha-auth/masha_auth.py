@@ -30,6 +30,8 @@ DOWNLOAD_FILES={
         '0B256931D01D77D958BD3FEE957A9CE982615026729103AFCE9CC2E48B32CB7C',
     'masha-build-72-windows-x64-b28e77862.zip':
         '2B4121446EBAF35AFE167DB03A0CAACCAD349F686C75997D8A553241A0ABBE90',
+    'masha-build-73-windows-x64-0dfe4ca982.zip':
+        '71781B4F2EC4218CE0875405A981D61CEBE899D8CA66A72E8F3379C0CC9CF039',
 }
 logging.basicConfig(level=logging.INFO,format='%(asctime)s %(levelname)s %(message)s')
 LOG=logging.getLogger('masha-auth')
