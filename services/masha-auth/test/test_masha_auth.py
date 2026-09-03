@@ -610,5 +610,30 @@ class AuthorizeTests(unittest.TestCase):
                 self.auth.DB = original_database
 
 
+    def test_tls_listener_defers_handshake_and_limits_client_timeout(self):
+        self.assertEqual(self.auth.Handler.timeout, 10)
+        fake_server = mock.Mock()
+        fake_server.socket = object()
+        original_socket = fake_server.socket
+        fake_server.serve_forever.side_effect = RuntimeError('stop-test-server')
+        fake_context = mock.Mock()
+        old_env = dict(os.environ)
+        try:
+            os.environ['MASHA_AUTH_TLS_CERT'] = 'unit-cert.pem'
+            os.environ['MASHA_AUTH_TLS_KEY'] = 'unit-key.pem'
+            with mock.patch.object(self.auth, 'init_db'), \
+                 mock.patch.object(self.auth, 'ensure_key', return_value=self.key), \
+                 mock.patch.object(self.auth, 'ThreadingHTTPServer', return_value=fake_server), \
+                 mock.patch.object(self.auth.ssl, 'SSLContext', return_value=fake_context):
+                with self.assertRaisesRegex(RuntimeError, 'stop-test-server'):
+                    self.auth.serve()
+        finally:
+            os.environ.clear()
+            os.environ.update(old_env)
+        fake_context.load_cert_chain.assert_called_once_with('unit-cert.pem', 'unit-key.pem')
+        fake_context.wrap_socket.assert_called_once_with(
+            original_socket, server_side=True, do_handshake_on_connect=False)
+
+
 if __name__ == '__main__':
     unittest.main()

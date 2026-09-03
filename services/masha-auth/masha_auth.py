@@ -735,6 +735,7 @@ def lease_action(req,finish=False):
     return True,'allowed',{'server_time':now,'duration_seconds':duration,'grace_seconds':LEASE_GRACE_SECONDS}
 
 class Handler(BaseHTTPRequestHandler):
+    timeout=10
     server_version='MashaAuth/2'; sys_version=''
     def log_message(self,fmt,*args): LOG.info('%s %s',self.client_address[0],fmt%args)
     def sendj(self,code,obj):
@@ -841,7 +842,7 @@ def serve():
     cert=os.getenv('MASHA_AUTH_TLS_CERT',''); key=os.getenv('MASHA_AUTH_TLS_KEY',''); scheme='http'
     if cert and key:
         ctx=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER); ctx.minimum_version=ssl.TLSVersion.TLSv1_2
-        ctx.load_cert_chain(cert,key); h.socket=ctx.wrap_socket(h.socket,server_side=True); scheme='https'
+        ctx.load_cert_chain(cert,key); h.socket=ctx.wrap_socket(h.socket,server_side=True,do_handshake_on_connect=False); scheme='https'
     LOG.info('listening on %s://%s:%s',scheme,host,port); h.serve_forever()
 
 def parse_valid_until(value):
