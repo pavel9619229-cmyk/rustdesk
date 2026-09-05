@@ -103,3 +103,12 @@ Then translate that source into the file's target language (infer the language f
 
 - Обращаться к пользователю только на «ты»; не использовать «вы» при прямом обращении.
 - Если у агента есть доступ к нужному файлу или среде проекта, изменения выполнять самостоятельно и не просить пользователя вручную вставлять код или заменять файлы.
+
+
+## Approved website favicon and title
+
+- Use only `masha-smartphone-compact-favicon-64.png`: the girl head on a black background.
+- Canonical approved file: `C:\Users\Server\Documents\UDU\deploy\agentmasha-20260902\masha-smartphone-compact-favicon-64.png`.
+- SHA-256: `df135dd3a8a240b9da7ac99a252827e74a7484030819460d95c1448b6a05b702`. Keep the approved image byte-for-byte; do not regenerate or replace it without an explicit user request.
+- Do not use `masha-favicon-64.png`, the previous fallback `favicon.ico`, or substitute emoji. Keep an explicit PNG favicon link when editing or publishing the page.
+- The homepage browser tab / new shortcut title must be exactly: «Удаленный доступ на базе российских серверов».
