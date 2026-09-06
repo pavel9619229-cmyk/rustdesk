@@ -105,6 +105,11 @@ Then translate that source into the file's target language (infer the language f
 - Если у агента есть доступ к нужному файлу или среде проекта, изменения выполнять самостоятельно и не просить пользователя вручную вставлять код или заменять файлы.
 
 
+## Website mockup versioning
+
+- Каждую новую версию макета сохранять отдельным файлом; предыдущую номерную версию не перезаписывать.
+- В названии файла новой версии макета всегда указывать порядковый номер, увеличенный ровно на 1 относительно последней существующей версии.
+
 ## Approved website favicon and title
 
 - Use only `masha-smartphone-compact-favicon-64.png`: the girl head on a black background.
