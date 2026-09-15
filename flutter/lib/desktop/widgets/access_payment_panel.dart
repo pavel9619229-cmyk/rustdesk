@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_hbb/models/masha_access_status.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter_hbb/masha_network_policy.dart';
 
 class MashaAccessPaymentPanel extends StatefulWidget {
   const MashaAccessPaymentPanel({
@@ -97,8 +98,8 @@ class _MashaAccessPaymentPanelState extends State<MashaAccessPaymentPanel> {
         throw StateError('payment confirmation url is missing');
       }
       final launcher = widget.paymentLauncher ??
-          (Uri target) =>
-              launchUrl(target, mode: LaunchMode.externalApplication);
+          (Uri target) => launchMashaExternalUri(target,
+              mode: LaunchMode.externalApplication);
       if (!await launcher(uri)) {
         throw StateError('failed to open payment page');
       }

@@ -11,6 +11,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../common.dart';
 import './dialog.dart';
+import 'package:flutter_hbb/masha_network_policy.dart';
 
 const kOpSvgList = [
   'github',
@@ -197,7 +198,8 @@ class _WidgetOPState extends State<WidgetOP> {
       if (_stateMsg != stateMsg || _failedMsg != failedMsg) {
         if (_url.isEmpty && url != null && url.isNotEmpty) {
           if (!urlLaunched) {
-            launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+            launchMashaExternalUri(Uri.parse(url),
+                mode: LaunchMode.externalApplication);
           }
           _url = url;
         }
@@ -267,8 +269,7 @@ class _WidgetOPState extends State<WidgetOP> {
                   Padding(
                     padding: const EdgeInsets.only(top: 8.0),
                     child: Builder(builder: (context) {
-                      final errorColor =
-                          Theme.of(context).colorScheme.error;
+                      final errorColor = Theme.of(context).colorScheme.error;
                       final bgColor = Theme.of(context)
                           .colorScheme
                           .errorContainer
@@ -289,12 +290,11 @@ class _WidgetOPState extends State<WidgetOP> {
                             Flexible(
                               child: SelectableText(
                                 translate(_failedMsg),
-                                style: DefaultTextStyle.of(context)
-                                    .style
-                                    .copyWith(
-                                      fontSize: 13,
-                                      color: errorColor,
-                                    ),
+                                style:
+                                    DefaultTextStyle.of(context).style.copyWith(
+                                          fontSize: 13,
+                                          color: errorColor,
+                                        ),
                               ),
                             ),
                           ],

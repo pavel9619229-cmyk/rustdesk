@@ -22,7 +22,6 @@ import 'package:get/get.dart';
 import 'package:get/get_rx/src/rx_workers/utils/debouncer.dart';
 import 'package:provider/provider.dart';
 import 'package:uni_links/uni_links.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:uuid/uuid.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:window_manager/window_manager.dart';
@@ -46,6 +45,7 @@ import 'package:flutter_hbb/native/win32.dart'
 import 'package:flutter_hbb/native/common.dart'
     if (dart.library.html) 'package:flutter_hbb/web/common.dart';
 import 'package:flutter_hbb/utils/http_service.dart' as http;
+import 'package:flutter_hbb/masha_network_policy.dart';
 
 final globalKey = GlobalKey<NavigatorState>();
 final navigationBarKey = GlobalKey();
@@ -1159,7 +1159,7 @@ Widget createDialogContent(String text) {
         ..onTap = () {
           String linkText = match.group(0) ?? '';
           linkText = linkText.replaceAll(RegExp(r'[.,;!?]+$'), '');
-          launchUrl(Uri.parse(linkText));
+          launchMashaExternalUri(Uri.parse(linkText));
         },
     ));
     start = match.end;
@@ -1247,7 +1247,7 @@ void msgBox(SessionID sessionId, String type, String title, String text,
 
   jumplink() {
     if (link.startsWith('http')) {
-      launchUrl(Uri.parse(link));
+      launchMashaExternalUri(Uri.parse(link));
     }
   }
 
@@ -3740,22 +3740,12 @@ Widget loadPowered(BuildContext context) {
   if (bind.mainGetBuildinOption(key: "hide-powered-by-me") == 'Y') {
     return SizedBox.shrink();
   }
-  return MouseRegion(
-    cursor: SystemMouseCursors.click,
-    child: GestureDetector(
-      onTap: () {
-        launchUrl(Uri.parse('https://github.com/pavel9619229-cmyk/rustdesk'));
-      },
-      child: Opacity(
-          opacity: 0.5,
-          child: Text(
-            'Основано на RustDesk (AGPL-3.0)',
-            overflow: TextOverflow.clip,
-            style: Theme.of(context)
-                .textTheme
-                .bodySmall
-                ?.copyWith(fontSize: 9, decoration: TextDecoration.underline),
-          )),
+  return Opacity(
+    opacity: 0.5,
+    child: Text(
+      'Основано на RustDesk (AGPL-3.0)',
+      overflow: TextOverflow.clip,
+      style: Theme.of(context).textTheme.bodySmall?.copyWith(fontSize: 9),
     ),
   ).marginOnly(top: 6);
 }

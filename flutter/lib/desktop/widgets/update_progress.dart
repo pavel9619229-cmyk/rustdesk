@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_hbb/common.dart';
 import 'package:flutter_hbb/models/platform_model.dart';
 import 'package:get/get.dart';
-import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter_hbb/masha_network_policy.dart';
 
 final _isExtracting = false.obs;
 
@@ -36,22 +36,23 @@ void handleUpdate(String releasePageUrl) {
                 .marginSymmetric(horizontal: 8)
                 .paddingOnly(top: 12),
         actions: [
-          if (_isExtracting.isFalse) dialogButton(translate('Cancel'), onPressed: () async {
-            onCanceled.value();
-            await bind.mainSetCommon(
-                key: 'cancel-downloader', value: downloadId.value);
-            // Wait for the downloader to be removed.
-            for (int i = 0; i < 10; i++) {
-              await Future.delayed(const Duration(milliseconds: 300));
-              final isCanceled = 'error:Downloader not found' ==
-                  await bind.mainGetCommon(
-                      key: 'download-data-${downloadId.value}');
-              if (isCanceled) {
-                break;
+          if (_isExtracting.isFalse)
+            dialogButton(translate('Cancel'), onPressed: () async {
+              onCanceled.value();
+              await bind.mainSetCommon(
+                  key: 'cancel-downloader', value: downloadId.value);
+              // Wait for the downloader to be removed.
+              for (int i = 0; i < 10; i++) {
+                await Future.delayed(const Duration(milliseconds: 300));
+                final isCanceled = 'error:Downloader not found' ==
+                    await bind.mainGetCommon(
+                        key: 'download-data-${downloadId.value}');
+                if (isCanceled) {
+                  break;
+                }
               }
-            }
-            close();
-          }, isOutline: true),
+              close();
+            }, isOutline: true),
         ]);
   });
 }
@@ -145,7 +146,7 @@ class UpdateProgressState extends State<UpdateProgress> {
     }
 
     jumplink() {
-      launchUrl(Uri.parse(widget.releasePageUrl));
+      launchMashaExternalUri(Uri.parse(widget.releasePageUrl));
       dialogManager.dismissAll();
     }
 

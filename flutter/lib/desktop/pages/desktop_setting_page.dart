@@ -21,11 +21,10 @@ import 'package:flutter_hbb/plugin/manager.dart';
 import 'package:flutter_hbb/plugin/widgets/desktop_settings.dart';
 import 'package:get/get.dart';
 import 'package:provider/provider.dart';
-import 'package:url_launcher/url_launcher.dart';
-import 'package:url_launcher/url_launcher_string.dart';
 
 import '../../common/widgets/dialog.dart';
 import '../../common/widgets/login.dart';
+import 'package:flutter_hbb/masha_network_policy.dart';
 
 const double _kTabWidth = 200;
 const double _kTabHeight = 42;
@@ -770,7 +769,7 @@ class _GeneralState extends State<_General> {
               Expanded(
                 child: GestureDetector(
                     onTap: root_dir_exists
-                        ? () => launchUrl(Uri.file(root_dir))
+                        ? () => launchMashaExternalUri(Uri.file(root_dir))
                         : null,
                     child: Text(
                       root_dir,
@@ -791,7 +790,7 @@ class _GeneralState extends State<_General> {
               Expanded(
                 child: GestureDetector(
                     onTap: user_dir_exists
-                        ? () => launchUrl(Uri.file(user_dir))
+                        ? () => launchMashaExternalUri(Uri.file(user_dir))
                         : null,
                     child: Text(
                       user_dir,
@@ -2425,7 +2424,6 @@ class _AboutState extends State<_About> {
       final version = data['version'].toString();
       final buildDate = data['buildDate'].toString();
       final fingerprint = data['fingerprint'].toString();
-      const linkStyle = TextStyle(decoration: TextDecoration.underline);
       final scrollController = ScrollController();
       return SingleChildScrollView(
         controller: scrollController,
@@ -2446,15 +2444,9 @@ class _AboutState extends State<_About> {
                 SelectionArea(
                     child: Text('${translate('Fingerprint')}: $fingerprint')
                         .marginSymmetric(vertical: 4.0)),
-              InkWell(
-                  onTap: () {
-                    launchUrlString(
-                        'https://github.com/pavel9619229-cmyk/rustdesk');
-                  },
-                  child: Text(
-                    'Исходный код УДАЛЕННОГО ОПЕРАТОРА МАША (AGPL-3.0)',
-                    style: linkStyle,
-                  ).marginSymmetric(vertical: 4.0)),
+              Text(
+                'Исходный код УДАЛЕННОГО ОПЕРАТОРА МАША (AGPL-3.0)',
+              ).marginSymmetric(vertical: 4.0),
               Container(
                 decoration: const BoxDecoration(color: Color(0xFF087F8C)),
                 padding:

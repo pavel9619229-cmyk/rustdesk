@@ -8,7 +8,6 @@ import 'package:flutter_hbb/desktop/pages/desktop_setting_page.dart';
 import 'package:get/get.dart';
 import 'package:provider/provider.dart';
 import 'package:settings_ui/settings_ui.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../common.dart';
 import '../../common/widgets/dialog.dart';
@@ -34,8 +33,6 @@ class SettingsPage extends StatefulWidget implements PageShape {
   @override
   State<SettingsPage> createState() => _SettingsState();
 }
-
-const url = 'https://github.com/pavel9619229-cmyk/rustdesk';
 
 enum KeepScreenOn {
   never,
@@ -953,16 +950,10 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
           title: Text(translate("About")),
           tiles: [
             SettingsTile(
-                onPressed: (context) async {
-                  await launchUrl(Uri.parse(url));
-                },
                 title: Text(translate("Version: ") + version),
                 value: Padding(
                   padding: EdgeInsets.symmetric(vertical: 8),
-                  child: Text('Исходный код (AGPL-3.0)',
-                      style: TextStyle(
-                        decoration: TextDecoration.underline,
-                      )),
+                  child: Text('Исходный код (AGPL-3.0)'),
                 ),
                 leading: Icon(Icons.info)),
             SettingsTile(
@@ -1091,18 +1082,10 @@ void showAbout(OverlayDialogManager dialogManager) {
         Text('Version: $version'),
         Text('УДАЛЕННЫЙ ОПЕРАТОР МАША'),
         Text('Основано на открытом проекте RustDesk (AGPL-3.0).'),
-        InkWell(
-            onTap: () async {
-              const url = 'https://github.com/pavel9619229-cmyk/rustdesk';
-              await launchUrl(Uri.parse(url));
-            },
-            child: Padding(
-              padding: EdgeInsets.symmetric(vertical: 8),
-              child: Text('Исходный код УДАЛЕННОГО ОПЕРАТОРА МАША',
-                  style: TextStyle(
-                    decoration: TextDecoration.underline,
-                  )),
-            )),
+        Padding(
+          padding: EdgeInsets.symmetric(vertical: 8),
+          child: Text('Исходный код УДАЛЕННОГО ОПЕРАТОРА МАША'),
+        ),
       ]),
       actions: [],
     );

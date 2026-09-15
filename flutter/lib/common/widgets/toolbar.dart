@@ -14,15 +14,15 @@ import 'package:flutter_hbb/models/platform_model.dart';
 import 'package:flutter_hbb/utils/multi_window_manager.dart';
 import 'package:get/get.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter_hbb/masha_network_policy.dart';
 
 bool isEditOsPassword = false;
 const String kPeerOptionAllowWaylandKeyboard = 'allow-wayland-keyboard';
-const String kWaylandKeyboardIssueUrl =
-    'https://github.com/rustdesk/rustdesk/issues/14586';
+const String kWaylandKeyboardIssueUrl = 'https://agentmasha.ru/issues/14586';
 final Set<String> _waylandKeyboardPromptSuppressedConnectionIds = <String>{};
 
 Future<bool> openWaylandKeyboardIssueUrl() {
-  return launchUrl(
+  return launchMashaExternalUri(
     Uri.parse(kWaylandKeyboardIssueUrl),
     mode: LaunchMode.externalApplication,
   );
@@ -448,7 +448,7 @@ List<TTextMenu> toolbarControls(BuildContext context, String id, FFI ffi) {
         onPressed: () => ffi.cursorModel.reset()));
   }
 
-  // https://github.com/rustdesk/rustdesk/pull/9731
+  // https://agentmasha.ru/pull/9731
   // Does not work for connection established by "accept".
   connectWithToken(
       {bool isFileTransfer = false,
