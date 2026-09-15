@@ -1,11 +1,12 @@
 from pathlib import Path
+import shutil
 
 from PIL import Image
 
 
 ROOT = Path(__file__).resolve().parents[1]
 ANDROID_RES = ROOT / "flutter" / "android" / "app" / "src" / "main" / "res"
-BIG_LOGO = ROOT / "logoMASHAbig.jpg"
+BRAND_SOURCE = ROOT / "res" / "brand" / "masha-smartphone-compact-icon.png"
 COMPACT_LOGO = ROOT / "logoMASHAcompact.jpg"
 
 
@@ -16,6 +17,13 @@ def square_icon(source: Image.Image, size: int) -> Image.Image:
     icon.paste(fitted, ((size - fitted.width) // 2, (size - fitted.height) // 2))
     return icon
 
+
+def square_icon_rgba(source: Image.Image, size: int) -> Image.Image:
+    icon = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    fitted = source.copy()
+    fitted.thumbnail((size, size), Image.Resampling.LANCZOS)
+    icon.alpha_composite(fitted, ((size - fitted.width) // 2, (size - fitted.height) // 2))
+    return icon
 
 def android_status_icon(source: Image.Image, size: int) -> Image.Image:
     grayscale = square_icon(source, size).convert("L")
@@ -59,12 +67,13 @@ def save_windows_assets(master: Image.Image) -> None:
 
 
 def main() -> None:
-    big_logo = Image.open(BIG_LOGO).convert("RGB")
+    brand_logo = Image.open(BRAND_SOURCE).convert("RGBA")
     compact_logo = Image.open(COMPACT_LOGO).convert("RGB")
-    master = square_icon(compact_logo, 1024)
+    master = square_icon_rgba(brand_logo, 1024)
     master.save(ROOT / "res" / "icon.png")
+    master.save(ROOT / "flutter" / "assets" / "icon.png")
     for name in ("logo.png", "logo_light.png", "logo_dark.png"):
-        big_logo.save(ROOT / "flutter" / "assets" / name)
+        shutil.copyfile(BRAND_SOURCE, ROOT / "flutter" / "assets" / name)
     save_android_assets(compact_logo)
     save_windows_assets(master)
 
