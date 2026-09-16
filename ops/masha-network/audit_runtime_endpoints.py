@@ -42,6 +42,11 @@ else:
             errors.append(f'Flutter allowlist missing {token}')
 
 for path in (ROOT / 'flutter/lib').rglob('*.dart'):
+    source = path.read_text(encoding='utf-8', errors='replace')
+    if 'GoogleFonts.' in source or 'fonts.gstatic.com' in source or 'fonts.googleapis.com' in source:
+        errors.append(f'external font runtime path: {path.relative_to(ROOT)}')
+
+for path in (ROOT / 'flutter/lib').rglob('*.dart'):
     if path == policy:
         continue
     data = path.read_text(encoding='utf-8', errors='replace')
