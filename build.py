@@ -472,6 +472,9 @@ def main():
     global skip_cargo
     parser = make_parser()
     args = parser.parse_args()
+    if windows:
+        system2(f'"{sys.executable}" ops/masha-network/apply_hbb_common_runtime_policy.py')
+        system2(f'"{sys.executable}" ops/masha-network/audit_runtime_endpoints.py')
 
     if os.path.exists(exe_path):
         os.unlink(exe_path)

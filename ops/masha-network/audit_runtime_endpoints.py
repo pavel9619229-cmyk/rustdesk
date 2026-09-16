@@ -24,6 +24,13 @@ require('src/hbbs_http/http_client.rs', 'redirect(reqwest::redirect::Policy::non
 require('src/auth_2fa.rs', 'Telegram 2FA is disabled in Masha', 'Telegram network disable')
 forbid('src/auth_2fa.rs', 'api.telegram.org', 'Telegram endpoint')
 forbid('src/common.rs', '"https://admin.rustdesk.com".to_owned()', 'RustDesk API fallback')
+require('src/common.rs', 'config::EXE_RENDEZVOUS_SERVER', 'Forced Masha rendezvous')
+require('build.py', 'apply_hbb_common_runtime_policy.py', 'Build-time hbb_common hardening')
+require('libs/hbb_common/src/config.rs', 'pub const RENDEZVOUS_SERVERS: &[&str] = &["77.222.38.70"];', 'Patched upstream rendezvous')
+forbid('libs/hbb_common/src/config.rs', 'rs-ny.rustdesk.com', 'Upstream rendezvous fallback')
+forbid('libs/hbb_common/src/config.rs', 'https://rustdesk.com/docs/', 'Upstream docs URL')
+forbid('libs/hbb_common/src/config.rs', 'https://github.com/rustdesk/rustdesk/wiki/', 'Upstream GitHub helper URL')
+forbid('libs/hbb_common/src/lib.rs', 'https://api.rustdesk.com/version/latest', 'Upstream update URL')
 
 policy = ROOT / 'flutter/lib/masha_network_policy.dart'
 if not policy.exists():

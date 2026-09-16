@@ -59,6 +59,7 @@ pub const MASHA_RENDEZVOUS_SERVER: &str = "77.222.38.70";
 pub const MASHA_SERVER_PUBLIC_KEY: &str = "9ceMofgvYTVTIC9G5mhjgmTejoqprML2iaMONVQJo8I=";
 
 pub fn configure_masha_servers() {
+    *config::EXE_RENDEZVOUS_SERVER.write().unwrap() = MASHA_RENDEZVOUS_SERVER.to_owned();
     *config::PROD_RENDEZVOUS_SERVER.write().unwrap() = MASHA_RENDEZVOUS_SERVER.to_owned();
 }
 
@@ -1072,9 +1073,8 @@ fn ensure_masha_service_url_allowed(url: &str) -> ResultType<()> {
 }
 
 #[inline]
-pub fn is_public(url: &str) -> bool {
-    let url = url.to_ascii_lowercase();
-    url.contains("rustdesk.com/") || url.ends_with("rustdesk.com")
+pub fn is_public(_url: &str) -> bool {
+    false
 }
 
 pub fn get_udp_punch_enabled() -> bool {
@@ -1129,7 +1129,10 @@ fn can_fallback_to_raw_tcp(url: &str) -> bool {
 
 #[inline]
 fn should_use_tcp_proxy_for_api_url(url: &str, api_url: &str) -> bool {
-    if api_url.is_empty() || is_public(api_url) {
+    if api_url.is_empty()
+        || !masha_service_url_allowed(api_url)
+        || !masha_service_url_allowed(url)
+    {
         return false;
     }
 
@@ -2787,38 +2790,22 @@ mod tests {
 
     #[test]
     fn test_is_public() {
-        // Test URLs containing "rustdesk.com/"
-        assert!(is_public("https://rustdesk.com/"));
-        assert!(is_public("https://www.rustdesk.com/"));
-        assert!(is_public("https://api.rustdesk.com/v1"));
-        assert!(is_public("https://API.RUSTDESK.COM/v1"));
-        assert!(is_public("https://rustdesk.com/path"));
-
-        // Test URLs ending with "rustdesk.com"
-        assert!(is_public("rustdesk.com"));
-        assert!(is_public("https://rustdesk.com"));
-        assert!(is_public("https://RustDesk.com"));
-        assert!(is_public("http://www.rustdesk.com"));
-        assert!(is_public("https://api.rustdesk.com"));
-
-        // Test non-public URLs
-        assert!(!is_public("https://example.com"));
-        assert!(!is_public("https://custom-server.com"));
-        assert!(!is_public("http://192.168.1.1"));
-        assert!(!is_public("localhost"));
-        assert!(!is_public("https://rustdesk.computer.com"));
-        assert!(!is_public("rustdesk.comhello.com"));
+        assert!(!is_public("https://rustdesk.com"));
+        assert!(!is_public("https://api.rustdesk.com/v1"));
+        assert!(!is_public("https://github.com/rustdesk/rustdesk"));
+        assert!(!is_public("https://agentmasha.ru"));
+        assert!(!is_public("http://77.222.38.70:21114"));
     }
 
     #[test]
     fn test_should_use_tcp_proxy_for_api_url() {
         assert!(should_use_tcp_proxy_for_api_url(
-            "https://admin.example.com/api/login",
-            "https://admin.example.com"
+            "https://api.agentmasha.ru/api/login",
+            "https://api.agentmasha.ru"
         ));
         assert!(should_use_tcp_proxy_for_api_url(
-            "https://admin.example.com:21114/api/login",
-            "https://admin.example.com"
+            "https://77.222.38.70:8443/api/login",
+            "https://77.222.38.70:8443"
         ));
         assert!(!should_use_tcp_proxy_for_api_url(
             "https://api.telegram.org/bot123/sendMessage",
