@@ -6,7 +6,8 @@ from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
 ANDROID_RES = ROOT / "flutter" / "android" / "app" / "src" / "main" / "res"
-BRAND_SOURCE = ROOT / "res" / "brand" / "masha-smartphone-compact-icon.png"
+SMALL_LOGO_SOURCE = ROOT / "res" / "brand" / "masha-logo-big.png"
+LARGE_LOGO_SOURCE = ROOT / "res" / "brand" / "agent-masha-plane-001.png"
 COMPACT_LOGO = ROOT / "logoMASHAcompact.jpg"
 
 
@@ -67,13 +68,13 @@ def save_windows_assets(master: Image.Image) -> None:
 
 
 def main() -> None:
-    brand_logo = Image.open(BRAND_SOURCE).convert("RGBA")
+    small_logo = Image.open(SMALL_LOGO_SOURCE).convert("RGBA")
     compact_logo = Image.open(COMPACT_LOGO).convert("RGB")
-    master = square_icon_rgba(brand_logo, 1024)
-    master.save(ROOT / "res" / "icon.png")
-    master.save(ROOT / "flutter" / "assets" / "icon.png")
+    master = square_icon_rgba(small_logo, 1024)
+    shutil.copyfile(SMALL_LOGO_SOURCE, ROOT / "res" / "icon.png")
+    shutil.copyfile(SMALL_LOGO_SOURCE, ROOT / "flutter" / "assets" / "icon.png")
     for name in ("logo.png", "logo_light.png", "logo_dark.png"):
-        shutil.copyfile(BRAND_SOURCE, ROOT / "flutter" / "assets" / name)
+        shutil.copyfile(LARGE_LOGO_SOURCE, ROOT / "flutter" / "assets" / name)
     save_android_assets(compact_logo)
     save_windows_assets(master)
 

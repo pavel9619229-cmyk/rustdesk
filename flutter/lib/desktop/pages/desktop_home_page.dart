@@ -97,7 +97,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                 return const SizedBox.shrink();
               }
               return Text(
-                '\u0421\u0431\u043e\u0440\u043a\u0430 $buildNumber',
+                '74160926',
                 style: TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.w600,
