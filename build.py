@@ -473,7 +473,8 @@ def build_flutter_windows(version, features, skip_portable_pack):
     portable_out = f'./masha-remote-operator-{get_flutter_build_number()}.exe'
     if os.path.exists(portable_out):
         os.remove(portable_out)
-    os.replace(portable_src, portable_out)
+    shutil.copy2(portable_src, portable_out)
+    os.remove(portable_src)
     print(f'output location: {os.path.abspath(portable_out)}')
 
 
