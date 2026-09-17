@@ -54,6 +54,20 @@ def get_version():
     return ''
 
 
+def get_flutter_build_number():
+    with open("flutter/pubspec.yaml", encoding="utf-8") as fh:
+        for line in fh:
+            if line.startswith("version:"):
+                value = line.split(":", 1)[1].strip()
+                if "+" not in value:
+                    raise RuntimeError("flutter/pubspec.yaml version must contain +<build-number>")
+                build_number = value.rsplit("+", 1)[1]
+                if not build_number.isdigit():
+                    raise RuntimeError("Flutter build number must contain digits only")
+                return build_number
+    raise RuntimeError("Flutter version was not found in flutter/pubspec.yaml")
+
+
 def parse_rc_features(feature):
     available_features = {}
     apply_features = {}
@@ -456,7 +470,7 @@ def build_flutter_windows(version, features, skip_portable_pack):
     system2('cargo build --locked --release --target-dir ../../target/portable-packer')
     os.chdir('../..')
     portable_src = './target/portable-packer/release/rustdesk-portable-packer.exe'
-    portable_out = './masha-remote-operator-windows-x86_64.exe'
+    portable_out = f'./masha-remote-operator-{get_flutter_build_number()}.exe'
     if os.path.exists(portable_out):
         os.remove(portable_out)
     os.replace(portable_src, portable_out)
