@@ -315,10 +315,13 @@ Future<void> _positionIncomingSessionBanner() async {
     final frame = screens.first.visibleFrame;
     await windowManager
         .setSize(Size(frame.width, kIncomingSessionBannerHeight));
-    await windowManager.setPosition(Offset(frame.left, frame.top));
+    await windowManager.setPosition(Offset(
+      frame.left,
+      frame.top + frame.height - kIncomingSessionBannerHeight,
+    ));
   } else {
     await windowManager.setSize(kIncomingSessionBannerFallbackSize);
-    await windowManager.setAlignment(Alignment.topCenter);
+    await windowManager.setAlignment(Alignment.bottomCenter);
   }
   await windowManager.setAlwaysOnTop(true);
   await windowManager.setMinimizable(false);
@@ -332,11 +335,7 @@ showCmWindow({bool isStartup = false}) async {
     await windowManager.waitUntilReadyToShow(windowOptions, null);
     bind.mainHideDock();
     await _positionIncomingSessionBanner();
-    await Future.wait([
-      windowManager.show(),
-      windowManager.focus(),
-      windowManager.setOpacity(1)
-    ]);
+    await Future.wait([windowManager.show(), windowManager.setOpacity(1)]);
     _isCmReadyToShow = true;
   } else if (_isCmReadyToShow) {
     if (await windowManager.getOpacity() != 1) {
